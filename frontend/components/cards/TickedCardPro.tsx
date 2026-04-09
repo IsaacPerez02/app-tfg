@@ -13,6 +13,8 @@ interface TickerCardProProps {
   dayLow: number
   volume: number
   marketCap: number
+  isFollowed?: boolean
+  onToggleFollow?: () => void
   onPress?: () => void
 }
 
@@ -26,6 +28,8 @@ export function TickerCardPro({
   dayLow,
   volume,
   marketCap,
+  isFollowed,
+  onToggleFollow,
   onPress
 }: TickerCardProProps) {
   const isDark = useColorScheme() === 'dark'
@@ -59,9 +63,26 @@ export function TickerCardPro({
               </Text>
             </View>
             <View style={styles.nameSection}>
-              <Text style={[styles.symbol, { color: textPrimary }]}>
-                {symbol}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={[styles.symbol, { color: textPrimary }]}>
+                  {symbol}
+                </Text>
+                {isFollowed !== undefined && (
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      onToggleFollow?.();
+                    }}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <MaterialCommunityIcons
+                      name={isFollowed ? 'star' : 'star-outline'}
+                      size={16}
+                      color={isFollowed ? '#FFD700' : textSecondary}
+                    />
+                  </TouchableOpacity>
+                )}
+              </View>
               <Text style={[styles.name, { color: textSecondary }]}>
                 {name}
               </Text>

@@ -433,6 +433,67 @@ router.get('/search/:query', async (req, res) => {
 });
 
 /**
+ * GET /api/tickers/followed/:userId
+ * Lista tickers seguidos por un usuario con datos de mercado actualizados
+ */
+router.get('/followed/:userId', async (req, res) => {
+  try {
+    const UserFollowTicket = require('../models/UserFollowTickets');
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId requerido' });
+    }
+
+    // 1. Obtener IDs de tickers seguidos (activos, sin unfollow)
+    const follows = await UserFollowTicket.find({ userId, unfollowAt: null });
+    const ticketIds = follows.map(f => f.ticketId);
+
+    if (ticketIds.length === 0) {
+      return res.json({ success: true, count: 0, tickers: [], timestamp: new Date().toISOString() });
+    }
+
+    // 2. Buscar los tickers en BD
+    const tickers = await Ticker.find({ _id: { $in: ticketIds } });
+
+    // 3. Obtener cotizaciones en tiempo real
+    const quotes = await Promise.all(
+      tickers.map(t => fetchQuoteWithRetry(t.symbol))
+    );
+
+    // 4. Enriquecer y devolver
+    const enriched = tickers.map((ticker, idx) => ({
+      _id: ticker._id,
+      symbol: ticker.symbol,
+      name: quotes[idx]?.name || ticker.name,
+      price: quotes[idx]?.price || 0,
+      change: quotes[idx]?.change || 0,
+      changeAbs: quotes[idx]?.changeAbs || 0,
+      volume: quotes[idx]?.volume || 0,
+      marketCap: quotes[idx]?.marketCap || 0,
+      dayHigh: quotes[idx]?.dayHigh || 0,
+      dayLow: quotes[idx]?.dayLow || 0,
+      open: quotes[idx]?.open || 0,
+      currency: quotes[idx]?.currency || 'USD',
+    }));
+
+    res.json({
+      success: true,
+      count: enriched.length,
+      tickers: enriched,
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch followed tickers',
+      message: error.message,
+    });
+  }
+});
+
+/**
  * GET /api/tickers/:id
  * Detalle completo de un ticker con gráficos e indicadores
  */
