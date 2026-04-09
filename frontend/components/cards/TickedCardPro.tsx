@@ -1,5 +1,4 @@
-import { StyleSheet, TouchableOpacity, View } from 'react-native'
-import { Text } from 'react-native-paper'
+import { StyleSheet, TouchableOpacity, View, Text } from 'react-native'
 import { useColorScheme } from '@/hooks/use-color-scheme'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
 
@@ -67,7 +66,7 @@ export function TickerCardPro({
                 <Text style={[styles.symbol, { color: textPrimary }]}>
                   {symbol}
                 </Text>
-                {isFollowed !== undefined && (
+                {isFollowed !== undefined ? (
                   <TouchableOpacity
                     onPress={(e) => {
                       e.stopPropagation();
@@ -81,7 +80,7 @@ export function TickerCardPro({
                       color={isFollowed ? '#FFD700' : textSecondary}
                     />
                   </TouchableOpacity>
-                )}
+                ) : null}
               </View>
               <Text style={[styles.name, { color: textSecondary }]}>
                 {name}

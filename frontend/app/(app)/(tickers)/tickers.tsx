@@ -266,11 +266,11 @@ export default function TickersScreen() {
           </Text>
         </View>
         <View style={styles.headerRight}>
-          {activeFiltersCount > 0 && (
+          {activeFiltersCount > 0 ? (
             <View style={styles.activeBadge}>
               <Text style={styles.activeBadgeText}>{activeFiltersCount}</Text>
             </View>
-          )}
+          ) : null}
           <TouchableOpacity onPress={handleRefresh} style={styles.iconBtn}>
             <MaterialCommunityIcons name="refresh" size={22} color="#0066FF" />
           </TouchableOpacity>
@@ -287,11 +287,11 @@ export default function TickersScreen() {
           value={search}
           onChangeText={setSearch}
         />
-        {search.length > 0 && (
+        {search.length > 0 ? (
           <TouchableOpacity onPress={() => setSearch('')}>
             <MaterialCommunityIcons name="close-circle" size={20} color={placeholder} />
           </TouchableOpacity>
-        )}
+        ) : null}
       </View>
 
       {/* ── Performance Chips ── */}
@@ -322,13 +322,13 @@ export default function TickersScreen() {
               <Text style={[styles.chipText, { color: active ? '#FFFFFF' : textSec }]}>
                 {chip.label}
               </Text>
-              {chip.key === 'followed' && followedIds.size > 0 && (
+              {(chip.key === 'followed' && followedIds.size > 0) ? (
                 <View style={[styles.chipCount, { backgroundColor: active ? 'rgba(255,255,255,0.3)' : borderColor }]}>
                   <Text style={[styles.chipCountText, { color: active ? '#FFFFFF' : textSec }]}>
                     {followedIds.size}
                   </Text>
                 </View>
-              )}
+              ) : null}
             </TouchableOpacity>
           )
         })}
@@ -380,29 +380,29 @@ export default function TickersScreen() {
               ? `${minChange || '−∞'}% → ${maxChange || '+∞'}%`
               : 'Rango %'}
           </Text>
-          {(minChange || maxChange) && (
+          {(minChange || maxChange) ? (
             <TouchableOpacity
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               onPress={() => { setMinChange(''); setMaxChange('') }}
             >
               <MaterialCommunityIcons name="close-circle" size={14} color="#0066FF" />
             </TouchableOpacity>
-          )}
+          ) : null}
         </TouchableOpacity>
 
         {/* Clear all */}
-        {activeFiltersCount > 0 && (
+        {activeFiltersCount > 0 ? (
           <TouchableOpacity
             style={[styles.toolbarBtnSmall, { backgroundColor: '#FF333318' }]}
             onPress={resetAllFilters}
           >
             <MaterialCommunityIcons name="close" size={15} color="#FF3333" />
           </TouchableOpacity>
-        )}
+        ) : null}
       </View>
 
       {/* ── Range Panel ── */}
-      {showRange && (
+      {showRange ? (
         <View style={[styles.rangePanel, { backgroundColor: bgSurface, borderBottomColor: borderColor }]}>
           <Text style={[styles.rangePanelTitle, { color: textSec }]}>
             Filtrar por cambio % del día
@@ -433,17 +433,17 @@ export default function TickersScreen() {
             </View>
           </View>
         </View>
-      )}
+      ) : null}
 
       {/* ── Error Banner ── */}
-      {error && (
+      {error ? (
         <View style={styles.errorBanner}>
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity onPress={handleRefresh}>
             <Text style={styles.errorAction}>Reintentar</Text>
           </TouchableOpacity>
         </View>
-      )}
+      ) : null}
 
       {/* ── Tickers List ── */}
       <FlatList
@@ -485,11 +485,11 @@ export default function TickersScreen() {
                 ? 'Sigue activos para verlos aquí'
                 : 'Prueba con otros filtros o búsqueda'}
             </Text>
-            {activeFiltersCount > 0 && (
+            {activeFiltersCount > 0 ? (
               <TouchableOpacity style={styles.emptyReset} onPress={resetAllFilters}>
                 <Text style={styles.emptyResetText}>Limpiar filtros</Text>
               </TouchableOpacity>
-            )}
+            ) : null}
           </View>
         }
       />
@@ -532,9 +532,9 @@ export default function TickersScreen() {
                   <Text style={[styles.sortRowLabel, { color: active ? '#0066FF' : textPrimary }]}>
                     {opt.label}
                   </Text>
-                  {active && (
+                  {active ? (
                     <MaterialCommunityIcons name="check-circle" size={20} color="#0066FF" />
-                  )}
+                  ) : null}
                 </TouchableOpacity>
               )
             })}
@@ -674,7 +674,7 @@ const styles = StyleSheet.create({
   errorAction: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
 
   // ── List
-  listContent: { paddingVertical: 8, paddingBottom: 30 },
+  listContent: { paddingVertical: 8, paddingBottom: 110 },
 
   // ── Empty
   emptyContainer: { alignItems: 'center', marginTop: 80, paddingHorizontal: 32 },

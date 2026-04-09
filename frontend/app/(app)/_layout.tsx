@@ -1,6 +1,5 @@
-// app/(app)/_layout.tsx
 import { Stack } from 'expo-router';
-import Options from '@/components/options'; // ✅ Aquí sí
+import Options from '@/components/options';
 
 export default function AppLayout() {
   return (
@@ -10,7 +9,7 @@ export default function AppLayout() {
           headerShown: false,
         }}
       />
-      <Options /> {/* ✅ Footer solo en la app autenticada */}
+      <Options />
     </>
   );
 }

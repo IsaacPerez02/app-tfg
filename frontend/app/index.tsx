@@ -9,7 +9,6 @@ export default function Index() {
     const checkAuthStatus = async () => {
         try {
             const userId = await AsyncStorage.getItem("userId");
-            console.log("UserId:", userId);
             if (userId) {
                 router.replace("/(app)/app");
             } else {
