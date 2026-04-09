@@ -1,0 +1,62 @@
+# 🔒 Variables de entorno
+.env
+.env.*
+!.env.example
+
+# 📦 Dependencias
+node_modules/
+
+# 🏗️ Builds
+dist/
+build/
+.out/
+.next/
+.nuxt/
+.cache/
+
+# 🧪 Testing
+coverage/
+*.lcov
+
+# 🧠 Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 🖥️ Sistema operativo
+.DS_Store
+Thumbs.db
+
+# 🧰 IDEs / Editores
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 🔐 Archivos sensibles
+*.pem
+*.key
+
+# 🐳 Docker
+docker-compose.override.yml
+
+# 🧾 Otros
+*.tgz
+*.zip
+
+# 🧹 ESLint cache
+.eslintcache
+
+# 🧪 Jest cache
+jest-cache/
+
+# ⚡ Parcel / Vite
+.cache/
+.parcel-cache/
+.vite/
+
+# 🧵 TypeScript
+*.tsbuildinfo
