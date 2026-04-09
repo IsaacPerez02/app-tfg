@@ -221,8 +221,6 @@ async function fetchQuoteWithRetry(symbol, maxRetries = 3) {
         yfQuote?.price?.marketCap ??
         null;
 
-      console.log(marketCap);
-
       const data = {
         symbol,
         name: symbol,
