@@ -1,0 +1,13 @@
+import * as React from "react"
+import Svg, { Path } from "react-native-svg"
+
+// SVG DotsVerticalIcon
+export function DotsIcon(props: any) {
+  return (
+    <Svg width={24} height={24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
+      <Path d="M11 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
+      <Path d="M11 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
+    </Svg>
+  )
+}
