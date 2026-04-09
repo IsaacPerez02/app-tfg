@@ -15,6 +15,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
 import { LinearGradient } from 'expo-linear-gradient'
 import { TradingViewChart } from '@/components/charts/TradingViewChart'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 
 const { width: SCREEN_W } = Dimensions.get('window')
 const API_URL = process.env.EXPO_PUBLIC_API
@@ -78,13 +79,13 @@ interface TickerDetail {
 type RangeKey = '1d' | '5d' | '1mo' | '3mo' | '6mo' | '1y' | '5y'
 
 const RANGES: { label: string; value: RangeKey; interval: string }[] = [
-  { label: '1D',  value: '1d',  interval: '1h' },
-  { label: '5D',  value: '5d',  interval: '1h' },
-  { label: '1M',  value: '1mo', interval: '1d' },
-  { label: '3M',  value: '3mo', interval: '1d' },
-  { label: '6M',  value: '6mo', interval: '1d' },
-  { label: '1A',  value: '1y',  interval: '1d' },
-  { label: '5A',  value: '5y',  interval: '1wk' },
+  { label: '1D', value: '1d', interval: '1h' },
+  { label: '5D', value: '5d', interval: '1h' },
+  { label: '1M', value: '1mo', interval: '1d' },
+  { label: '3M', value: '3mo', interval: '1d' },
+  { label: '6M', value: '6mo', interval: '1d' },
+  { label: '1A', value: '1y', interval: '1d' },
+  { label: '5A', value: '5y', interval: '1wk' },
 ]
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -97,9 +98,9 @@ function fmt(n: number, decimals = 2) {
 function fmtLarge(n: number) {
   if (!n || isNaN(n)) return 'N/A'
   if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`
-  if (n >= 1e9)  return `$${(n / 1e9).toFixed(2)}B`
-  if (n >= 1e6)  return `$${(n / 1e6).toFixed(2)}M`
-  if (n >= 1e3)  return `$${(n / 1e3).toFixed(2)}K`
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(2)}K`
   return `$${n.toFixed(0)}`
 }
 
@@ -182,23 +183,25 @@ export default function TickerDetailScreen() {
   const [chartLoading, setChartLoading] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [activeRange, setActiveRange] = useState<RangeKey>('1y')
+  const [isFollowing, setIsFollowing] = useState(false)
+  const [followLoading, setFollowLoading] = useState(false)
 
   // ─ Theme
-  const bg       = isDark ? '#0A0A0A' : '#F2F2F7'
-  const surface  = isDark ? '#1C1C1E' : '#FFFFFF'
+  const bg = isDark ? '#0A0A0A' : '#F2F2F7'
+  const surface = isDark ? '#1C1C1E' : '#FFFFFF'
   const surface2 = isDark ? '#2C2C2E' : '#F5F5F5'
-  const textP    = isDark ? '#FFFFFF' : '#000000'
-  const textS    = isDark ? '#8E8E93' : '#6D6D78'
-  const border   = isDark ? '#2C2C2E' : '#E5E5EA'
-  const accent   = '#00b4d8'
-  const upColor  = '#00CC66'
+  const textP = isDark ? '#FFFFFF' : '#000000'
+  const textS = isDark ? '#8E8E93' : '#6D6D78'
+  const border = isDark ? '#2C2C2E' : '#E5E5EA'
+  const accent = '#00b4d8'
+  const upColor = '#00CC66'
   const downColor = '#FF3333'
 
   // ─ Fetch full ticker
   const fetchTicker = useCallback(async () => {
     try {
       setRefreshing(true)
-      const res  = await fetch(`${API_URL}/tickers/${id}`)
+      const res = await fetch(`${API_URL}/tickers/${id}`)
       const json = await res.json()
       if (json?.success && json?.ticker) {
         const t: TickerDetail = json.ticker
@@ -225,8 +228,8 @@ export default function TickerDetailScreen() {
     try {
       setChartLoading(true)
       const rangeInfo = RANGES.find(r => r.value === range)
-      const interval  = rangeInfo?.interval || '1d'
-      const res  = await fetch(`${API_URL}/tickers/${id}/chart?range=${range}&interval=${interval}`)
+      const interval = rangeInfo?.interval || '1d'
+      const res = await fetch(`${API_URL}/tickers/${id}/chart?range=${range}&interval=${interval}`)
       const json = await res.json()
       if (json?.success && json?.data) {
         setChartData(json.data)
@@ -242,7 +245,66 @@ export default function TickerDetailScreen() {
     }
   }, [id, ticker])
 
-  useEffect(() => { if (id) fetchTicker() }, [id, fetchTicker])
+  const checkFollowStatus = useCallback(async () => {
+    try {
+      const userIdStr = await AsyncStorage.getItem("userId")
+      if (!userIdStr) return
+      let userId = userIdStr
+      if (userId.startsWith('"') && userId.endsWith('"')) {
+        userId = userId.slice(1, -1)
+      }
+      const res = await fetch(`${API_URL}/followTickets/check/${userId}/${id}`)
+      if (!res.ok) return
+      const json = await res.json()
+      setIsFollowing(json.isFollowing)
+    } catch (err) {
+      console.warn('Check follow status error:', err)
+    }
+  }, [id])
+
+  useEffect(() => {
+    if (id) {
+      fetchTicker()
+      checkFollowStatus()
+    }
+  }, [id, fetchTicker, checkFollowStatus])
+
+  const toggleFollow = async () => {
+    if (followLoading) return
+    try {
+      setFollowLoading(true)
+      const userIdStr = await AsyncStorage.getItem("userId")
+      if (!userIdStr) {
+        Alert.alert("Error", "No has iniciado sesión")
+        return
+      }
+      let userId = userIdStr
+      if (userId.startsWith('"') && userId.endsWith('"')) {
+        userId = userId.slice(1, -1)
+      }
+
+      if (isFollowing) {
+        await fetch(`${API_URL}/followTickets/unfollow`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, ticketId: id })
+        })
+        setIsFollowing(false)
+      } else {
+        await fetch(`${API_URL}/followTickets/follow`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, ticketId: id })
+        })
+        setIsFollowing(true)
+      }
+    } catch (err) {
+      console.warn('Toggle follow error:', err)
+      Alert.alert("Error", "No se pudo actualizar el estado de seguimiento")
+    } finally {
+      setFollowLoading(false)
+    }
+  }
 
   const handleRangeChange = (range: RangeKey) => {
     setActiveRange(range)
@@ -263,7 +325,7 @@ export default function TickerDetailScreen() {
 
   const isPositive = ticker.change >= 0
   const changeColor = isPositive ? upColor : downColor
-  const rsiVal  = lastValidRSI(ticker.indicators?.rsi || [])
+  const rsiVal = lastValidRSI(ticker.indicators?.rsi || [])
   const rsiInfo = rsiVal !== null ? rsiLabel(rsiVal) : null
 
   // 52W range position for price
@@ -282,6 +344,17 @@ export default function TickerDetailScreen() {
           <Text style={[styles.headerSymbol, { color: textP }]}>{ticker.symbol}</Text>
           <Text style={[styles.headerName, { color: textS }]} numberOfLines={1}>{ticker.name}</Text>
         </View>
+        <TouchableOpacity onPress={toggleFollow} style={styles.headerBtn} disabled={followLoading}>
+          {followLoading ? (
+            <ActivityIndicator size="small" color={accent} />
+          ) : (
+            <MaterialCommunityIcons
+              name={isFollowing ? 'star' : 'star-outline'}
+              size={24}
+              color={isFollowing ? '#FFD700' : textS}
+            />
+          )}
+        </TouchableOpacity>
         <TouchableOpacity onPress={fetchTicker} style={styles.headerBtn} disabled={refreshing}>
           <MaterialCommunityIcons
             name={refreshing ? 'loading' : 'refresh'}
@@ -467,18 +540,18 @@ export default function TickerDetailScreen() {
         <View style={[styles.section, { backgroundColor: surface }]}>
           <SectionHeader title="📈 Datos de Mercado" textP={textP} />
           <View style={styles.statsGrid}>
-            <StatCard label="Apertura"      value={`$${fmt(ticker.open)}`}             bg={surface2} textP={textP} textS={textS} />
-            <StatCard label="Cierre Previo" value={`$${fmt(ticker.previousClose)}`}    bg={surface2} textP={textP} textS={textS} />
-            <StatCard label="Máx. Diario"   value={`$${fmt(ticker.dayHigh)}`}          bg={surface2} textP={textP} textS={textS} valueColor={upColor} />
-            <StatCard label="Mín. Diario"   value={`$${fmt(ticker.dayLow)}`}           bg={surface2} textP={textP} textS={textS} valueColor={downColor} />
-            <StatCard label="Volumen"        value={fmtLarge(ticker.volume)}            bg={surface2} textP={textP} textS={textS} />
-            <StatCard label="Vol. Promedio"  value={fmtLarge(ticker.avgVolume)}         bg={surface2} textP={textP} textS={textS} />
-            <StatCard label="Cap. Bursátil"  value={fmtLarge(ticker.marketCap)}         bg={surface2} textP={textP} textS={textS} />
-            <StatCard label="P/E Ratio"      value={ticker.pe ? fmt(ticker.pe, 1) : 'N/A'} bg={surface2} textP={textP} textS={textS} />
-            <StatCard label="Dividendo"      value={ticker.dividend ? `${(ticker.dividend * 100).toFixed(2)}%` : 'N/A'} bg={surface2} textP={textP} textS={textS} />
-            <StatCard label="Beta"           value={ticker.fundamentals?.beta ? fmt(ticker.fundamentals.beta) : 'N/A'} bg={surface2} textP={textP} textS={textS} />
-            <StatCard label="EPS"            value={ticker.fundamentals?.eps ? `$${fmt(ticker.fundamentals.eps)}` : 'N/A'} bg={surface2} textP={textP} textS={textS} />
-            <StatCard label="P/B Ratio"      value={ticker.fundamentals?.priceToBook ? fmt(ticker.fundamentals.priceToBook, 1) : 'N/A'} bg={surface2} textP={textP} textS={textS} />
+            <StatCard label="Apertura" value={`$${fmt(ticker.open)}`} bg={surface2} textP={textP} textS={textS} />
+            <StatCard label="Cierre Previo" value={`$${fmt(ticker.previousClose)}`} bg={surface2} textP={textP} textS={textS} />
+            <StatCard label="Máx. Diario" value={`$${fmt(ticker.dayHigh)}`} bg={surface2} textP={textP} textS={textS} valueColor={upColor} />
+            <StatCard label="Mín. Diario" value={`$${fmt(ticker.dayLow)}`} bg={surface2} textP={textP} textS={textS} valueColor={downColor} />
+            <StatCard label="Volumen" value={fmtLarge(ticker.volume)} bg={surface2} textP={textP} textS={textS} />
+            <StatCard label="Vol. Promedio" value={fmtLarge(ticker.avgVolume)} bg={surface2} textP={textP} textS={textS} />
+            <StatCard label="Cap. Bursátil" value={fmtLarge(ticker.marketCap)} bg={surface2} textP={textP} textS={textS} />
+            <StatCard label="P/E Ratio" value={ticker.pe ? fmt(ticker.pe, 1) : 'N/A'} bg={surface2} textP={textP} textS={textS} />
+            <StatCard label="Dividendo" value={ticker.dividend ? `${(ticker.dividend * 100).toFixed(2)}%` : 'N/A'} bg={surface2} textP={textP} textS={textS} />
+            <StatCard label="Beta" value={ticker.fundamentals?.beta ? fmt(ticker.fundamentals.beta) : 'N/A'} bg={surface2} textP={textP} textS={textS} />
+            <StatCard label="EPS" value={ticker.fundamentals?.eps ? `$${fmt(ticker.fundamentals.eps)}` : 'N/A'} bg={surface2} textP={textP} textS={textS} />
+            <StatCard label="P/B Ratio" value={ticker.fundamentals?.priceToBook ? fmt(ticker.fundamentals.priceToBook, 1) : 'N/A'} bg={surface2} textP={textP} textS={textS} />
           </View>
 
           {/* 52W Range */}
@@ -515,51 +588,51 @@ export default function TickerDetailScreen() {
           ticker.fundamentals.returnOnEquity != null ||
           ticker.fundamentals.profitMargins != null
         ) && (
-          <View style={[styles.section, { backgroundColor: surface }]}>
-            <SectionHeader title="🏦 Fundamentales" textP={textP} />
-            <View style={styles.statsGrid}>
-              {ticker.fundamentals?.returnOnEquity != null && (
-                <StatCard
-                  label="ROE"
-                  value={`${((ticker.fundamentals.returnOnEquity) * 100).toFixed(1)}%`}
-                  bg={surface2} textP={textP} textS={textS}
-                  valueColor={(ticker.fundamentals.returnOnEquity) > 0 ? upColor : downColor}
-                />
-              )}
-              {ticker.fundamentals?.profitMargins != null && (
-                <StatCard
-                  label="Margen Neto"
-                  value={`${((ticker.fundamentals.profitMargins) * 100).toFixed(1)}%`}
-                  bg={surface2} textP={textP} textS={textS}
-                  valueColor={(ticker.fundamentals.profitMargins) > 0 ? upColor : downColor}
-                />
-              )}
-              {ticker.fundamentals?.debtToEquity != null && (
-                <StatCard
-                  label="Deuda/Capital"
-                  value={fmt(ticker.fundamentals.debtToEquity, 1)}
-                  bg={surface2} textP={textP} textS={textS}
-                />
-              )}
-              {ticker.fundamentals?.freeCashflow != null && (
-                <StatCard
-                  label="Free Cash Flow"
-                  value={fmtLarge(ticker.fundamentals.freeCashflow)}
-                  bg={surface2} textP={textP} textS={textS}
-                />
-              )}
+            <View style={[styles.section, { backgroundColor: surface }]}>
+              <SectionHeader title="🏦 Fundamentales" textP={textP} />
+              <View style={styles.statsGrid}>
+                {ticker.fundamentals?.returnOnEquity != null && (
+                  <StatCard
+                    label="ROE"
+                    value={`${((ticker.fundamentals.returnOnEquity) * 100).toFixed(1)}%`}
+                    bg={surface2} textP={textP} textS={textS}
+                    valueColor={(ticker.fundamentals.returnOnEquity) > 0 ? upColor : downColor}
+                  />
+                )}
+                {ticker.fundamentals?.profitMargins != null && (
+                  <StatCard
+                    label="Margen Neto"
+                    value={`${((ticker.fundamentals.profitMargins) * 100).toFixed(1)}%`}
+                    bg={surface2} textP={textP} textS={textS}
+                    valueColor={(ticker.fundamentals.profitMargins) > 0 ? upColor : downColor}
+                  />
+                )}
+                {ticker.fundamentals?.debtToEquity != null && (
+                  <StatCard
+                    label="Deuda/Capital"
+                    value={fmt(ticker.fundamentals.debtToEquity, 1)}
+                    bg={surface2} textP={textP} textS={textS}
+                  />
+                )}
+                {ticker.fundamentals?.freeCashflow != null && (
+                  <StatCard
+                    label="Free Cash Flow"
+                    value={fmtLarge(ticker.fundamentals.freeCashflow)}
+                    bg={surface2} textP={textP} textS={textS}
+                  />
+                )}
+              </View>
             </View>
-          </View>
-        )}
+          )}
 
         {/* ── PERFORMANCE ── */}
         <View style={[styles.section, { backgroundColor: surface }]}>
           <SectionHeader title="💹 Rendimiento" textP={textP} />
-          <PerfRow label="1 Día"   value={ticker.changes?.day}         textP={textP} textS={textS} />
-          <PerfRow label="1 Semana" value={ticker.changes?.week}       textP={textP} textS={textS} />
-          <PerfRow label="1 Mes"   value={ticker.changes?.month}       textP={textP} textS={textS} />
+          <PerfRow label="1 Día" value={ticker.changes?.day} textP={textP} textS={textS} />
+          <PerfRow label="1 Semana" value={ticker.changes?.week} textP={textP} textS={textS} />
+          <PerfRow label="1 Mes" value={ticker.changes?.month} textP={textP} textS={textS} />
           <PerfRow label="3 Meses" value={ticker.changes?.threeMonths} textP={textP} textS={textS} />
-          <PerfRow label="1 Año"   value={ticker.changes?.year}        textP={textP} textS={textS} />
+          <PerfRow label="1 Año" value={ticker.changes?.year} textP={textP} textS={textS} />
         </View>
 
         {/* ── SMA SNAPSHOT ── */}

@@ -6,8 +6,6 @@ const cors = require("cors")
 
 const app = express();
 
-console.log(process.env.MONGODB_URI)
-
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log('✅ Conectado a MongoDB'))
   .catch(err => console.error('❌ Error al conectar MongoDB:', err));
@@ -22,6 +20,7 @@ app.use(express.json())
 // USES ROUTES
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/tickers', require('./routes/tickers'));
+app.use('/api/followTickets', require('./routes/followTickets'));
 
 // Levantar servidor
 app.listen(PORT, () => {

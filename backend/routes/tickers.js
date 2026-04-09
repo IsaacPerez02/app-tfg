@@ -185,33 +185,62 @@ function formatVolume(volume) {
  * Fetch quote con reintento
  */
 async function fetchQuoteWithRetry(symbol, maxRetries = 3) {
-  // Verificar caché primero
   if (isCacheValid(symbol)) {
     return getCacheData(symbol);
   }
 
+  let yfQuote = null;
+  try {
+    yfQuote = await Promise.race([
+      yahooFinance.quote(symbol),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('YF Timeout')), 3000))
+    ]);
+  } catch (err) {
+    console.warn(`[War] yahooFinance.quote timeout/error for ${symbol}`);
+  }
+
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const quote = await yahooFinance.quote(symbol);
+      const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=1d&interval=1d`);
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      const json = await res.json();
+
+      if (!json.chart || !json.chart.result || !json.chart.result[0]) {
+        throw new Error("No data found");
+      }
+
+      const meta = json.chart.result[0].meta;
+      const prevClose = meta.chartPreviousClose || meta.previousClose || 0;
+      const price = meta.regularMarketPrice ?? 0;
+      const changeAbs = price - prevClose;
+      const change = prevClose > 0 ? (changeAbs / prevClose) * 100 : 0;
+
+      const marketCap =
+        yfQuote?.marketCap ??
+        yfQuote?.marketCap?.raw ??
+        yfQuote?.price?.marketCap ??
+        null;
+
+      console.log(marketCap);
 
       const data = {
         symbol,
-        name: quote?.longName || quote?.shortName || symbol,
-        price: quote?.regularMarketPrice ?? 0,
-        change: quote?.regularMarketChangePercent ?? 0,
-        changeAbs: quote?.regularMarketChange ?? 0,
-        currency: quote?.currency ?? 'USD',
-        volume: quote?.regularMarketVolume ?? 0,
-        avgVolume: quote?.averageDailyVolume10Day ?? 0,
-        marketCap: quote?.marketCap ?? 0,
-        pe: quote?.trailingPE ?? null,
-        dividend: quote?.trailingAnnualDividendYield ?? 0,
-        dayHigh: quote?.regularMarketDayHigh ?? 0,
-        dayLow: quote?.regularMarketDayLow ?? 0,
-        fiftyTwoWeekHigh: quote?.fiftyTwoWeekHigh ?? 0,
-        fiftyTwoWeekLow: quote?.fiftyTwoWeekLow ?? 0,
-        open: quote?.regularMarketOpen ?? 0,
-        previousClose: quote?.regularMarketPreviousClose ?? 0,
+        name: symbol,
+        price: price,
+        change: change,
+        changeAbs: changeAbs,
+        currency: meta.currency ?? 'USD',
+        volume: meta.regularMarketVolume ?? 0,
+        avgVolume: 0,
+        marketCap: marketCap,
+        pe: null,
+        dividend: 0,
+        dayHigh: meta.regularMarketDayHigh ?? 0,
+        dayLow: meta.regularMarketDayLow ?? 0,
+        fiftyTwoWeekHigh: meta.fiftyTwoWeekHigh ?? 0,
+        fiftyTwoWeekLow: meta.fiftyTwoWeekLow ?? 0,
+        open: meta.regularMarketOpen ?? 0,
+        previousClose: prevClose,
       };
 
       setCacheData(symbol, data);
@@ -225,7 +254,6 @@ async function fetchQuoteWithRetry(symbol, maxRetries = 3) {
     }
   }
 
-  // Si todo falla, retornar datos por defecto
   return {
     symbol,
     name: symbol,
@@ -245,39 +273,33 @@ async function fetchQuoteWithRetry(symbol, maxRetries = 3) {
  */
 async function fetchHistoricalData(symbol, range = '1y', interval = '1d') {
   try {
-    const endDate = new Date();
-    let startDate = new Date();
+    const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=${interval}`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    const json = await res.json();
+    if (!json.chart.result || json.chart.result.length === 0) return [];
 
-    // Parsear range
-    if (range === '1d') startDate.setDate(startDate.getDate() - 1);
-    else if (range === '5d') startDate.setDate(startDate.getDate() - 5);
-    else if (range === '1mo') startDate.setMonth(startDate.getMonth() - 1);
-    else if (range === '3mo') startDate.setMonth(startDate.getMonth() - 3);
-    else if (range === '6mo') startDate.setMonth(startDate.getMonth() - 6);
-    else if (range === '1y') startDate.setFullYear(startDate.getFullYear() - 1);
-    else if (range === '2y') startDate.setFullYear(startDate.getFullYear() - 2);
-    else if (range === '5y') startDate.setFullYear(startDate.getFullYear() - 5);
+    const result = json.chart.result[0];
+    const timestamps = result.timestamp || [];
+    const quotes = result.indicators?.quote?.[0] || {};
 
-    const chartData = await yahooFinance.chart(symbol, {
-      period1: startDate,
-      period2: endDate,
-      interval
-    });
+    return timestamps.map((ts, i) => {
+      const open = quotes.open?.[i];
+      const high = quotes.high?.[i];
+      const low = quotes.low?.[i];
+      const close = quotes.close?.[i];
+      if (open == null || high == null || low == null || close == null) return null;
 
-    const quotes = chartData?.quotes || [];
-
-    return quotes
-      .filter(q => q.close && q.open && q.high && q.low)
-      .map(q => ({
-        date: new Date(q.date).toISOString().split('T')[0],
-        timestamp: new Date(q.date).getTime(),
-        open: Number(q.open.toFixed(2)),
-        high: Number(q.high.toFixed(2)),
-        low: Number(q.low.toFixed(2)),
-        close: Number(q.close.toFixed(2)),
-        volume: q.volume || 0,
-        adjClose: Number(q.adjClose?.toFixed(2) || q.close.toFixed(2))
-      }));
+      return {
+        date: new Date(ts * 1000).toISOString().split('T')[0],
+        timestamp: ts * 1000,
+        open: Number(open.toFixed(2)),
+        high: Number(high.toFixed(2)),
+        low: Number(low.toFixed(2)),
+        close: Number(close.toFixed(2)),
+        volume: quotes.volume?.[i] || 0,
+        adjClose: Number(close.toFixed(2))
+      };
+    }).filter(Boolean);
 
   } catch (err) {
     console.error(`Historical data error for ${symbol}:`, err.message);
@@ -462,6 +484,7 @@ router.get('/:id', async (req, res) => {
 
     // 6. FETCH FUNDAMENTALS (quoteSummary)
     let fundamentals = {};
+    /* 
     try {
       const summary = await yahooFinance.quoteSummary(symbol, {
         modules: ['financialData', 'defaultKeyStatistics', 'summaryDetail']
@@ -487,6 +510,7 @@ router.get('/:id', async (req, res) => {
     } catch (fundamentalErr) {
       console.warn(`Fundamentals not available for ${symbol}:`, fundamentalErr.message);
     }
+    */
 
     // 7. BUILD RESPONSE
     res.json({
