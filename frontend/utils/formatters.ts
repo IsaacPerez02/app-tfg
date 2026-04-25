@@ -30,8 +30,21 @@ export function getChangeColor(change: number, isDark: boolean): string {
   return isDark ? '#CCCCCC' : '#666666';
 }
 
-export function timeAgo(date: Date): string {
-  const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
+/** Convierte formato GDELT (YYYYMMDDHHMMSS) o ISO a Date. Devuelve null si inválido. */
+export function parseNewsDate(raw: string | undefined | null): Date | null {
+  if (!raw) return null;
+  let iso = raw;
+  if (raw.length >= 14 && !raw.includes('T') && !raw.includes('-')) {
+    iso = `${raw.slice(0,4)}-${raw.slice(4,6)}-${raw.slice(6,8)}T${raw.slice(8,10)}:${raw.slice(10,12)}:${raw.slice(12,14)}Z`;
+  }
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+export function timeAgo(date: Date | string | null | undefined): string {
+  const d = date instanceof Date ? date : parseNewsDate(date as string);
+  if (!d) return '';
+  const seconds = Math.floor((new Date().getTime() - d.getTime()) / 1000);
   if (seconds < 60) return 'now';
 
   const minutes = Math.floor(seconds / 60);
@@ -43,5 +56,5 @@ export function timeAgo(date: Date): string {
   const days = Math.floor(hours / 24);
   if (days < 7) return days + 'd ago';
 
-  return date.toLocaleDateString();
+  return d.toLocaleDateString();
 }

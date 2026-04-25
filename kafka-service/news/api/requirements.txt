@@ -1,0 +1,8 @@
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+confluent-kafka==2.4.0
+trafilatura==1.9.0
+requests==2.31.0
+pydantic==2.7.1
+motor==3.4.0
+pymongo==4.7.2

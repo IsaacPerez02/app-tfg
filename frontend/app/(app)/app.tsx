@@ -3,7 +3,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import { useColorScheme } from '@/hooks/use-color-scheme'
 import { useMarketData } from '@/hooks/use-market-data'
-import { useNewsData } from '@/hooks/use-news-data'
+import { useNewsFeed } from '@/hooks/use-news-data'
 import { TickerCard } from '@/components/cards/TickerCard'
 import { NewsCard } from '@/components/cards/NewsCard'
 import { formatPrice, formatPercent } from '@/utils/formatters'
@@ -12,7 +12,7 @@ export default function HomeScreen() {
   const router  = useRouter()
   const isDark  = useColorScheme() === 'dark'
   const { tickers } = useMarketData()
-  const { news }    = useNewsData()
+  const { news }    = useNewsFeed('latest')
 
   const bg        = isDark ? '#000000' : '#F7F8FA'
   const surface   = isDark ? '#111111' : '#FFFFFF'
