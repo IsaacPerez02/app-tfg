@@ -89,6 +89,42 @@ async def get_news_by_id(news_id: str) -> NewsItem:
         raise HTTPException(status_code=404, detail="Article not found")
     return NewsItem(**doc)
 
+# ── Tickers ──────────────────────────────────────────────────────────────────
+
+@app.get("/news/{ticker}", response_model=list[NewsItem])
+async def get_news_by_ticker(
+    ticker: str,
+    mode:   Literal["top", "latest"] = Query("top"),
+    limit:  int                       = Query(20, ge=1, le=100),
+    page:   int                       = Query(1, ge=1),
+) -> list[NewsItem]:
+    """
+    Obtiene noticias para un ticker específico.
+
+    - mode="top"   → ordenado por importance_score (defecto)
+    - mode="latest" → cronológico
+    """
+    col = get_collection()
+    skip = (page - 1) * limit
+
+    ticker = ticker.upper()
+    if ticker not in ALLOWED_TICKERS:
+        return []  # ticker not monitored
+
+    query = {"tickers": ticker}
+
+    if mode == "latest":
+        # latest chronological
+        cursor = col.find(query, {"title_norm": 0}).sort("date", -1).skip(skip).limit(limit)
+        docs = await cursor.to_list(length=limit)
+        return [NewsItem(**d) for d in docs]
+
+    # mode == "top": rank by importance_score (sample pool)
+    pool = limit * 4
+    cursor = col.find(query, {"title_norm": 0}).sort("importance_score", -1).skip(skip).limit(pool)
+    docs = await cursor.to_list(length=pool)
+    ranked = sort_by_score(docs)
+    return [NewsItem(**d) for d in ranked[:limit]]
 
 # ── Trending ──────────────────────────────────────────────────────────────────
 

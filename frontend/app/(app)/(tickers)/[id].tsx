@@ -8,11 +8,15 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  Pressable,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useColorScheme } from '@/hooks/use-color-scheme'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
+import { useNewsByTicker } from '@/hooks/use-news-by-ticker'
+import { parseSentiment } from '@/types'
+import { timeAgo } from '@/utils/formatters'
 import { LinearGradient } from 'expo-linear-gradient'
 import { TradingViewChart } from '@/components/charts/TradingViewChart'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -185,6 +189,9 @@ export default function TickerDetailScreen() {
   const [activeRange, setActiveRange] = useState<RangeKey>('1y')
   const [isFollowing, setIsFollowing] = useState(false)
   const [followLoading, setFollowLoading] = useState(false)
+
+  // ticker.symbol ('GOOGL') en vez de id (puede ser _id de Mongo)
+  const { news: tickerNews, loading: newsLoading } = useNewsByTicker(ticker?.symbol ?? '')
 
   // ─ Theme
   const bg = isDark ? '#0A0A0A' : '#F2F2F7'
@@ -635,6 +642,53 @@ export default function TickerDetailScreen() {
           <PerfRow label="1 Año" value={ticker.changes?.year} textP={textP} textS={textS} />
         </View>
 
+        {/* ── NOTICIAS RELACIONADAS ── */}
+        <View style={[styles.section, { backgroundColor: surface }]}>
+          <SectionHeader title="📰 Noticias relevantes" textP={textP} />
+          {newsLoading ? (
+            <ActivityIndicator color={accent} style={{ marginVertical: 12 }} />
+          ) : tickerNews.length === 0 ? (
+            <Text style={[styles.techLabel, { color: textS }]}>
+              Sin noticias recientes para {id}
+            </Text>
+          ) : (
+            tickerNews.map(item => {
+              const sent = parseSentiment(item.sentiment)
+              const sentIcon = sent.key === 'positive' ? 'trending-up'
+                             : sent.key === 'negative' ? 'trending-down'
+                             : 'minus'
+              return (
+                <Pressable
+                  key={item._id}
+                  onPress={() => router.push(`/(app)/(news)/${item._id}` as any)}
+                  style={({ pressed }) => [
+                    styles.newsItem,
+                    { borderColor: border, opacity: pressed ? 0.7 : 1 },
+                  ]}
+                >
+                  <View style={styles.newsItemHeader}>
+                    <View style={[styles.sentBadge, { backgroundColor: sent.color + '22' }]}>
+                      <MaterialCommunityIcons name={sentIcon as any} size={11} color={sent.color} />
+                      <Text style={[styles.sentText, { color: sent.color }]}>{sent.label}</Text>
+                    </View>
+                    <Text style={[styles.newsTime, { color: textS }]}>
+                      {timeAgo(item.date)}
+                    </Text>
+                  </View>
+                  <Text style={[styles.newsTitle, { color: textP }]} numberOfLines={2}>
+                    {item.title}
+                  </Text>
+                  {item.summary ? (
+                    <Text style={[styles.newsSummary, { color: textS }]} numberOfLines={2}>
+                      {item.summary}
+                    </Text>
+                  ) : null}
+                </Pressable>
+              )
+            })
+          )}
+        </View>
+
         {/* ── SMA SNAPSHOT ── */}
         <View style={[styles.section, { backgroundColor: surface, marginBottom: 100 }]}>
           <SectionHeader title="📉 Medias Móviles" textP={textP} />
@@ -888,4 +942,30 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   smaBadgeText: { fontSize: 12, fontWeight: '600' },
+
+  // Ticker news
+  newsItem: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    gap: 6,
+  },
+  newsItemHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  sentBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  sentText:    { fontSize: 11, fontWeight: '600' },
+  newsTime:    { fontSize: 11 },
+  newsTitle:   { fontSize: 14, fontWeight: '700', lineHeight: 20 },
+  newsSummary: { fontSize: 12, lineHeight: 18 },
 })

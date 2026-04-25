@@ -70,13 +70,13 @@ export const newsService = {
     return data
   },
 
-  /** GET /news?ticker=INTC&limit=50 — noticias filtradas por ticker */
+  /** GET /news?ticker=INTC&mode=top&limit=N — top N noticias para un ticker */
   getNewsByTicker: async (
     ticker: string,
-    limit = 50
+    limit = 3
   ): Promise<BackendNews[] | null> => {
     const data = await safeFetch<BackendNews[]>(
-      `${BASE}/news?ticker=${ticker.toUpperCase()}&limit=${limit}`
+      `${BASE}/news?ticker=${ticker.toUpperCase()}&mode=top&limit=${limit}`
     )
     if (data) {
       for (const item of data) newsCache.set(item._id, item)

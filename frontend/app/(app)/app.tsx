@@ -85,7 +85,7 @@ export default function HomeScreen() {
               <TickerCard
                 key={t.id}
                 ticker={t}
-                onPress={() => router.push(`/(app)/(tickers)/${t.id}` as any)}
+                onPress={() => router.push(`/(app)/(tickers)/${t.symbol}` as any)}
               />
             ))}
           </View>
@@ -101,9 +101,9 @@ export default function HomeScreen() {
           </View>
           {news.slice(0, 3).map(n => (
             <NewsCard
-              key={n.id}
+              key={n._id}
               news={n}
-              onPress={() => router.push(`/(app)/(news)/${n.id}` as any)}
+              onPress={() => router.push(`/(app)/(news)/${n._id}` as any)}
             />
           ))}
         </View>
