@@ -4,10 +4,6 @@ KAFKA_BROKER = os.getenv("KAFKA_BROKER", "localhost:9092")
 RAW_TOPIC = "raw_news"
 ENRICHED_TOPIC = "enriched_news"
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://Isaac:N97beS5gXp9Bieyd@tradingia.gc6ykmg.mongodb.net/?appName=TradingIA")
-MONGO_DB = os.getenv("MONGO_DB", "news")
-MONGO_COLLECTION = "articles"
-
 # Ranking decay half-life in hours (importance halves every TAU_HOURS)
 RECENCY_TAU_HOURS = 24
 
@@ -23,60 +19,10 @@ FINANCIAL_THEMES = {
 NASDAQ_MAP: dict[str, str] = {
     "apple": "AAPL",
     "microsoft": "MSFT",
-    "amazon": "AMZN",
+    "intel": "INTC",
     "alphabet": "GOOGL",
     "google": "GOOGL",
-    "meta": "META",
-    "facebook": "META",
-    "tesla": "TSLA",
-    "nvidia": "NVDA",
     "netflix": "NFLX",
-    "adobe": "ADBE",
-    "intel": "INTC",
-    "advanced micro devices": "AMD",
-    "qualcomm": "QCOM",
-    "paypal": "PYPL",
-    "uber": "UBER",
-    "airbnb": "ABNB",
-    "zoom": "ZM",
-    "spotify": "SPOT",
-    "snap": "SNAP",
-    "lyft": "LYFT",
-    "pinterest": "PINS",
-    "shopify": "SHOP",
-    "coinbase": "COIN",
-    "palantir": "PLTR",
-    "robinhood": "HOOD",
-    "roblox": "RBLX",
-    "doordash": "DASH",
-    "rivian": "RIVN",
-    "lucid": "LCID",
-    "jpmorgan": "JPM",
-    "jp morgan": "JPM",
-    "goldman sachs": "GS",
-    "morgan stanley": "MS",
-    "bank of america": "BAC",
-    "wells fargo": "WFC",
-    "citigroup": "C",
-    "blackrock": "BLK",
-    "berkshire": "BRK",
-    "visa": "V",
-    "mastercard": "MA",
-    "american express": "AXP",
-    "salesforce": "CRM",
-    "oracle": "ORCL",
-    "ibm": "IBM",
-    "cisco": "CSCO",
-    "broadcom": "AVGO",
-    "texas instruments": "TXN",
-    "micron": "MU",
-    "amd": "AMD",
-    "arm holdings": "ARM",
-    "asml": "ASML",
-    "tsmc": "TSM",
-    "samsung": "SSNLF",
-    "openai": "MSFT",  # no public ticker, associate with investor
-    "anthropic": "AMZN",  # no public ticker, associate with investor
 }
 
 

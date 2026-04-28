@@ -1,0 +1,35 @@
+# kafka-service/docker-compose.yml
+
+include:
+  - path: news/docker-compose.yml
+  - path: data/docker-compose.yml
+
+services:
+  yfinance-server:
+    image: yarhrn/yfinance-server:latest
+    container_name: yfinance-server
+
+    restart: unless-stopped
+
+    ports:
+      - "8001:8000"
+
+    environment:
+      PYTHONUNBUFFERED: "1"
+      # importante: evita crashes silenciosos en algunos builds
+      LOG_LEVEL: "info"
+
+    networks:
+      - kafka-net
+
+    # 🔥 FIX IMPORTANTE: evita que se quede “medio muerto” sin control
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/docs"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+networks:
+  kafka-net:
+    external: true

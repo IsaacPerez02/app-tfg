@@ -15,10 +15,12 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useColorScheme } from '@/hooks/use-color-scheme'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
 import { useNewsByTicker } from '@/hooks/use-news-by-ticker'
-import { parseSentiment } from '@/types'
+import { useCandles } from '@/hooks/use-candles'
+import { useTickersList } from '@/hooks/use-tickers-list'
+import { parseSentiment, CandleTimeframe, MarketCandle } from '@/types'
 import { timeAgo } from '@/utils/formatters'
 import { LinearGradient } from 'expo-linear-gradient'
-import { TradingViewChart } from '@/components/charts/TradingViewChart'
+import { CandleLineChart } from '@/components/charts/CandleLineChart'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
 const { width: SCREEN_W } = Dimensions.get('window')
@@ -173,10 +175,243 @@ function SectionHeader({ title, textP }: { title: string; textP: string }) {
   return <Text style={[styles.sectionHeader, { color: textP }]}>{title}</Text>
 }
 
-// ─── Main Screen ──────────────────────────────────────────────────────────────
 
-export default function TickerDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>()
+const CRYPTO_TIMEFRAMES: { label: string; value: CandleTimeframe }[] = [
+  { label: '1m',  value: '1m'  },
+  { label: '5m',  value: '5m'  },
+  { label: '15m', value: '15m' },
+  { label: '1h',  value: '1h'  },
+  { label: '4h',  value: '4h'  },
+  { label: '1d',  value: '1d'  },
+]
+
+// ─── Crypto Detail Screen ─────────────────────────────────────────────────────
+
+function CryptoDetailScreen({ ticker }: { ticker: string }) {
+  const router = useRouter()
+  const isDark = useColorScheme() === 'dark'
+
+  const { candles, loading, error, timeframe, setTimeframe, refresh } = useCandles(ticker, '1h')
+  const { news: tickerNews, loading: newsLoading } = useNewsByTicker(ticker)
+
+  const bg       = isDark ? '#0A0A0A' : '#F2F2F7'
+  const surface  = isDark ? '#1C1C1E' : '#FFFFFF'
+  const surface2 = isDark ? '#2C2C2E' : '#F5F5F5'
+  const textP    = isDark ? '#FFFFFF' : '#000000'
+  const textS    = isDark ? '#8E8E93' : '#6D6D78'
+  const border   = isDark ? '#2C2C2E' : '#E5E5EA'
+  const accent   = '#00b4d8'
+  const upColor  = '#00CC66'
+  const downColor = '#FF3333'
+
+  const latest = candles.length > 0 ? candles[candles.length - 1] : null
+  const prev    = candles.length > 1 ? candles[candles.length - 2] : null
+
+  const price  = latest?.close ?? 0
+  const change = (prev && prev.close > 0)
+    ? ((price - prev.close) / prev.close) * 100
+    : 0
+  const isPositive  = change >= 0
+  const changeColor = isPositive ? upColor : downColor
+
+  // Skeleton row while loading
+  if (loading && candles.length === 0) {
+    return (
+      <SafeAreaView style={[styles.safe, { backgroundColor: bg }]}>
+        {/* Header */}
+        <View style={[styles.header, { backgroundColor: surface, borderBottomColor: border }]}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
+            <MaterialCommunityIcons name="chevron-left" size={28} color={accent} />
+          </TouchableOpacity>
+          <View style={styles.headerTitle}>
+            <Text style={[styles.headerSymbol, { color: textP }]}>{ticker}</Text>
+            <Text style={[styles.headerName, { color: textS }]}>Cargando datos...</Text>
+          </View>
+          <TouchableOpacity onPress={refresh} style={styles.headerBtn}>
+            <MaterialCommunityIcons name="refresh" size={22} color={accent} />
+          </TouchableOpacity>
+        </View>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={accent} />
+          <Text style={[styles.loadingText, { color: textS }]}>Cargando candles...</Text>
+        </View>
+      </SafeAreaView>
+    )
+  }
+
+  return (
+    <SafeAreaView style={[styles.safe, { backgroundColor: bg }]} edges={['top']}>
+
+      {/* ── HEADER ── */}
+      <View style={[styles.header, { backgroundColor: surface, borderBottomColor: border }]}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
+          <MaterialCommunityIcons name="chevron-left" size={28} color={accent} />
+        </TouchableOpacity>
+        <View style={styles.headerTitle}>
+          <Text style={[styles.headerSymbol, { color: textP }]}>{ticker}</Text>
+          <Text style={[styles.headerName, { color: textS }]}>via kafka-service/data</Text>
+        </View>
+        <TouchableOpacity onPress={refresh} style={styles.headerBtn} disabled={loading}>
+          <MaterialCommunityIcons
+            name={loading ? 'loading' : 'refresh'}
+            size={22}
+            color={accent}
+          />
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        nestedScrollEnabled
+      >
+
+        {/* ── PRICE HERO ── */}
+        <LinearGradient
+          colors={isDark ? ['#0A1628', '#0D0D0D'] : ['#EBF7FB', '#F2F2F7']}
+          style={styles.priceHero}
+        >
+          <Text style={[styles.heroPrice, { color: textP }]}>
+            ${price > 0 ? price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
+          </Text>
+          <View style={styles.heroBadgeRow}>
+            {price > 0 && (
+              <View style={[styles.changeBadge, { backgroundColor: changeColor + '22' }]}>
+                <MaterialCommunityIcons
+                  name={isPositive ? 'trending-up' : 'trending-down'}
+                  size={14}
+                  color={changeColor}
+                />
+                <Text style={[styles.changeBadgeText, { color: changeColor }]}>
+                  {isPositive ? '+' : ''}{change.toFixed(2)}%
+                </Text>
+              </View>
+            )}
+            <Text style={[styles.heroMeta, { color: textS }]}>
+              {ticker} · {timeframe.toUpperCase()} · {candles.length} velas
+            </Text>
+          </View>
+        </LinearGradient>
+
+        {/* ── ERROR BANNER ── */}
+        {error && (
+          <View style={[styles.cryptoErrorBanner, { backgroundColor: '#FF333322', borderColor: downColor }]}>
+            <MaterialCommunityIcons name="wifi-off" size={16} color={downColor} />
+            <Text style={[styles.cryptoErrorText, { color: downColor }]}>{error}</Text>
+            <TouchableOpacity onPress={refresh}>
+              <Text style={[styles.cryptoErrorRetry, { color: accent }]}>Reintentar</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* ── CHART ── */}
+        <View style={[styles.chartWrapper, { backgroundColor: isDark ? '#0D0D0D' : '#FFFFFF' }]}>
+          <CandleLineChart
+            data={candles}
+            isDark={isDark}
+            height={220}
+            showMA
+            maWindow={20}
+            accentColor={accent}
+          />
+          {loading && candles.length > 0 && (
+            <View style={styles.chartOverlay}>
+              <ActivityIndicator size="small" color={accent} />
+            </View>
+          )}
+        </View>
+
+        {/* ── TIMEFRAME SELECTOR ── */}
+        <View style={[styles.rangeRow, { backgroundColor: surface }]}>
+          {CRYPTO_TIMEFRAMES.map(tf => {
+            const isActive = timeframe === tf.value
+            return (
+              <TouchableOpacity
+                key={tf.value}
+                onPress={() => setTimeframe(tf.value)}
+                style={[styles.rangeBtn, isActive && { backgroundColor: accent }]}
+              >
+                <Text style={[
+                  styles.rangeBtnText,
+                  { color: isActive ? '#FFFFFF' : textS },
+                  isActive && { fontWeight: '700' },
+                ]}>
+                  {tf.label}
+                </Text>
+              </TouchableOpacity>
+            )
+          })}
+        </View>
+
+        {/* ── OHLCV STATS ── */}
+        {latest && (
+          <View style={[styles.section, { backgroundColor: surface }]}>
+            <SectionHeader title="📊 Último candle" textP={textP} />
+            <View style={styles.statsGrid}>
+              <StatCard label="Apertura"  value={`$${fmt(latest.open)}`}   bg={surface2} textP={textP} textS={textS} />
+              <StatCard label="Máximo"    value={`$${fmt(latest.high)}`}   bg={surface2} textP={textP} textS={textS} valueColor={upColor} />
+              <StatCard label="Mínimo"    value={`$${fmt(latest.low)}`}    bg={surface2} textP={textP} textS={textS} valueColor={downColor} />
+              <StatCard label="Cierre"    value={`$${fmt(latest.close)}`}  bg={surface2} textP={textP} textS={textS} />
+              <StatCard label="Volumen"   value={fmtLarge(latest.volume)}  bg={surface2} textP={textP} textS={textS} />
+              <StatCard label="Timeframe" value={latest.timeframe.toUpperCase()} bg={surface2} textP={textP} textS={textS} valueColor={accent} />
+            </View>
+          </View>
+        )}
+
+        {/* ── NOTICIAS RELACIONADAS ── */}
+        <View style={[styles.section, { backgroundColor: surface, marginBottom: 100 }]}>
+          <SectionHeader title="📰 Noticias relevantes" textP={textP} />
+          {newsLoading ? (
+            <ActivityIndicator color={accent} style={{ marginVertical: 12 }} />
+          ) : tickerNews.length === 0 ? (
+            <Text style={[styles.techLabel, { color: textS }]}>
+              Sin noticias recientes para {ticker}
+            </Text>
+          ) : (
+            tickerNews.map(item => {
+              const sent = parseSentiment(item.sentiment)
+              const sentIcon = sent.key === 'positive' ? 'trending-up'
+                             : sent.key === 'negative' ? 'trending-down'
+                             : 'minus'
+              return (
+                <Pressable
+                  key={item._id}
+                  onPress={() => router.push(`/(app)/(news)/${item._id}` as any)}
+                  style={({ pressed }) => [
+                    styles.newsItem,
+                    { borderColor: border, opacity: pressed ? 0.7 : 1 },
+                  ]}
+                >
+                  <View style={styles.newsItemHeader}>
+                    <View style={[styles.sentBadge, { backgroundColor: sent.color + '22' }]}>
+                      <MaterialCommunityIcons name={sentIcon as any} size={11} color={sent.color} />
+                      <Text style={[styles.sentText, { color: sent.color }]}>{sent.label}</Text>
+                    </View>
+                    <Text style={[styles.newsTime, { color: textS }]}>{timeAgo(item.date)}</Text>
+                  </View>
+                  <Text style={[styles.newsTitle, { color: textP }]} numberOfLines={2}>
+                    {item.title}
+                  </Text>
+                  {item.summary ? (
+                    <Text style={[styles.newsSummary, { color: textS }]} numberOfLines={2}>
+                      {item.summary}
+                    </Text>
+                  ) : null}
+                </Pressable>
+              )
+            })
+          )}
+        </View>
+
+      </ScrollView>
+    </SafeAreaView>
+  )
+}
+
+// ─── Stock Detail Screen (Express backend) ────────────────────────────────────
+
+function StockDetailScreen({ id }: { id: string }) {
   const router = useRouter()
   const isDark = useColorScheme() === 'dark'
 
@@ -423,12 +658,13 @@ export default function TickerDetailScreen() {
 
         {/* ── CHART ── */}
         <View style={[styles.chartWrapper, { backgroundColor: isDark ? '#0D0D0D' : '#FFFFFF' }]}>
-          <TradingViewChart
+          <CandleLineChart
             data={chartData}
-            sma20={chartIndicators.sma20}
-            sma50={chartIndicators.sma50}
             isDark={isDark}
-            height={370}
+            height={220}
+            showMA
+            maWindow={20}
+            accentColor={accent}
           />
           {chartLoading && (
             <View style={styles.chartOverlay}>
@@ -724,6 +960,34 @@ export default function TickerDetailScreen() {
   )
 }
 
+// ─── Router shell ─────────────────────────────────────────────────────────────
+// Single source of truth for which screen a ticker ID maps to.
+// trackedSymbols comes from GET /tickers (kafka-service/data config.py) —
+// no patterns, no hardcoding. Adding a new asset to TICKER_METADATA is enough.
+
+export default function TickerDetailScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>()
+  const { trackedSymbols, loading } = useTickersList()
+  const isDark = useColorScheme() === 'dark'
+  const bg     = isDark ? '#0A0A0A' : '#F2F2F7'
+
+  if (loading) {
+    return (
+      <SafeAreaView style={[styles.safe, { backgroundColor: bg }]}>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color="#00b4d8" />
+        </View>
+      </SafeAreaView>
+    )
+  }
+
+  if (id && trackedSymbols.has(id)) {
+    return <CryptoDetailScreen ticker={id} />
+  }
+
+  return <StockDetailScreen id={id ?? ''} />
+}
+
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
@@ -968,4 +1232,19 @@ const styles = StyleSheet.create({
   newsTime:    { fontSize: 11 },
   newsTitle:   { fontSize: 14, fontWeight: '700', lineHeight: 20 },
   newsSummary: { fontSize: 12, lineHeight: 18 },
+
+  // Crypto error banner
+  cryptoErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  cryptoErrorText:  { flex: 1, fontSize: 13, fontWeight: '500' },
+  cryptoErrorRetry: { fontSize: 13, fontWeight: '700' },
 })

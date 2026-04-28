@@ -11,7 +11,7 @@ interface TickerCardProProps {
   dayHigh: number
   dayLow: number
   volume: number
-  marketCap: number
+  marketCap?: number
   isFollowed?: boolean
   onToggleFollow?: () => void
   onPress?: () => void
@@ -46,7 +46,11 @@ export function TickerCardPro({
     ? `$${(volume / 1e6).toFixed(2)}M`
     : `$${(volume / 1e3).toFixed(2)}K`
 
-  const formattedCap = marketCap >= 1e9
+  const formattedCap = !marketCap
+    ? 'N/A'
+    : marketCap >= 1e12
+    ? `$${(marketCap / 1e12).toFixed(2)}T`
+    : marketCap >= 1e9
     ? `$${(marketCap / 1e9).toFixed(2)}B`
     : `$${(marketCap / 1e6).toFixed(2)}M`
 

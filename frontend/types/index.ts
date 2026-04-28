@@ -84,6 +84,44 @@ export function parseSentiment(value: number): {
   return               { label: 'Neutral',  key: 'neutral',  color: '#F0B90B' };
 }
 
+/**
+ * Formato exacto que devuelve GET /tickers (FastAPI puerto 8003).
+ * Basado en TICKER_METADATA de kafka-service/data/api/config.py.
+ * Es el equivalente de BackendNews en el sistema de noticias.
+ */
+export interface TickerSummary {
+  ticker: string;       // e.g. "BTC-USD"
+  name: string;         // e.g. "Bitcoin"
+  category: string;     // "crypto" | "stock" | ...
+  price: number;
+  open: number;
+  dayHigh: number;
+  dayLow: number;
+  volume: number;
+  change: number;       // % change from open
+  changeAbs: number;    // absolute change
+  last_updated: string | null;
+}
+
+/**
+ * Formato exacto que devuelve GET /candles (FastAPI puerto 8003).
+ * Basado en kafka-service/data/api/schemas/marketCandle.py — MarketCandle.
+ */
+export interface MarketCandle {
+  ticker: string;
+  timestamp: string;     // ISO 8601
+  timeframe: string;     // "1m" | "5m" | "15m" | "1h" | "4h" | "1d"
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  source: string;
+  created_at: string | null;
+}
+
+export type CandleTimeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
+
 export interface AIRecommendation {
   id: string;
   ticker: string;

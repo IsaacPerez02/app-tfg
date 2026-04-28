@@ -1,3 +1,16 @@
+/**
+ * Tickers list screen.
+ *
+ * Market data comes EXCLUSIVELY from kafka-service/data (port 8003) via
+ * useTickersList() → marketDataService.getTickers() → GET /tickers.
+ *
+ * The list of available assets is driven by TICKER_METADATA in
+ * kafka-service/data/api/config.py — no hardcoding in the frontend.
+ *
+ * Follow/unfollow is the only remaining Express (port 3000) call because it
+ * is a user-social feature, not market data.
+ */
+
 import {
   View,
   StyleSheet,
@@ -16,41 +29,31 @@ import { useRouter } from 'expo-router'
 import { useColorScheme } from '@/hooks/use-color-scheme'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
 import { TickerCardPro } from '@/components/cards/TickedCardPro'
+import { useTickersList } from '@/hooks/use-tickers-list'
+import { TickerSummary } from '@/types'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
-const API_URL = process.env.EXPO_PUBLIC_API
+// Follow/unfollow is user-social data — stays on Express
+const EXPRESS_API = process.env.EXPO_PUBLIC_API
 
-interface Ticker {
-  _id: string
-  symbol: string
-  name: string
-  price: number
-  change: number
-  changeAbs: number
-  dayHigh: number
-  dayLow: number
-  volume: number
-  marketCap: number
-}
+// ── Filter / sort types ────────────────────────────────────────────────────────
 
 type PerformanceFilter = 'all' | 'winners' | 'losers' | 'followed'
 type SortOption =
   | 'default'
   | 'change_desc'
   | 'change_asc'
-  | 'marketcap_desc'
   | 'volume_desc'
   | 'az'
   | 'za'
 
 const SORT_OPTIONS: { key: SortOption; label: string; icon: string }[] = [
-  { key: 'default',       label: 'Por defecto',           icon: 'format-list-bulleted' },
-  { key: 'change_desc',   label: 'Mayor subida %',         icon: 'trending-up' },
-  { key: 'change_asc',    label: 'Mayor bajada %',         icon: 'trending-down' },
-  { key: 'marketcap_desc',label: 'Mayor capitalización',   icon: 'bank-outline' },
-  { key: 'volume_desc',   label: 'Mayor volumen',          icon: 'chart-bar' },
-  { key: 'az',            label: 'A → Z',                  icon: 'sort-alphabetical-ascending' },
-  { key: 'za',            label: 'Z → A',                  icon: 'sort-alphabetical-descending' },
+  { key: 'default',     label: 'Por defecto',   icon: 'format-list-bulleted' },
+  { key: 'change_desc', label: 'Mayor subida %', icon: 'trending-up'         },
+  { key: 'change_asc',  label: 'Mayor bajada %', icon: 'trending-down'       },
+  { key: 'volume_desc', label: 'Mayor volumen',  icon: 'chart-bar'           },
+  { key: 'az',          label: 'A → Z',          icon: 'sort-alphabetical-ascending'  },
+  { key: 'za',          label: 'Z → A',          icon: 'sort-alphabetical-descending' },
 ]
 
 const PERF_CHIPS: {
@@ -59,25 +62,27 @@ const PERF_CHIPS: {
   icon: string
   color: string
 }[] = [
-  { key: 'all',      label: 'Todos',       icon: 'view-grid-outline', color: '#0066FF' },
-  { key: 'winners',  label: 'Ganadores',   icon: 'trending-up',       color: '#00CC66' },
-  { key: 'losers',   label: 'Perdedores',  icon: 'trending-down',     color: '#FF3333' },
-  { key: 'followed', label: 'Seguidos',    icon: 'star',              color: '#FFD700' },
+  { key: 'all',      label: 'Todos',      icon: 'view-grid-outline', color: '#0066FF' },
+  { key: 'winners',  label: 'Ganadores',  icon: 'trending-up',       color: '#00CC66' },
+  { key: 'losers',   label: 'Perdedores', icon: 'trending-down',     color: '#FF3333' },
+  { key: 'followed', label: 'Seguidos',   icon: 'star',              color: '#FFD700' },
 ]
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export default function TickersScreen() {
   const router = useRouter()
   const isDark = useColorScheme() === 'dark'
 
-  // ─── Data ───────────────────────────────────────────────────────────────────
-  const [tickers,    setTickers]    = useState<Ticker[]>([])
-  const [followedIds,setFollowedIds]= useState<Set<string>>(new Set())
-  const [userId,     setUserId]     = useState<string | null>(null)
-  const [loading,    setLoading]    = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error,      setError]      = useState<string | null>(null)
+  // ── Market data — from kafka-service/data ──────────────────────────────────
+  const { tickers, loading, error, refresh } = useTickersList()
 
-  // ─── Filters ─────────────────────────────────────────────────────────────────
+  // ── User-social data — follow state ───────────────────────────────────────
+  const [followedIds, setFollowedIds] = useState<Set<string>>(new Set())
+  const [userId,      setUserId]      = useState<string | null>(null)
+  const [refreshing,  setRefreshing]  = useState(false)
+
+  // ── Filters ────────────────────────────────────────────────────────────────
   const [search,        setSearch]        = useState('')
   const [perfFilter,    setPerfFilter]    = useState<PerformanceFilter>('all')
   const [sortOption,    setSortOption]    = useState<SortOption>('default')
@@ -86,7 +91,7 @@ export default function TickersScreen() {
   const [minChange,     setMinChange]     = useState('')
   const [maxChange,     setMaxChange]     = useState('')
 
-  // ─── Theme ───────────────────────────────────────────────────────────────────
+  // ── Theme ──────────────────────────────────────────────────────────────────
   const bgMain      = isDark ? '#000000' : '#F7F8FA'
   const bgSurface   = isDark ? '#1F1F1F' : '#FFFFFF'
   const bgModal     = isDark ? '#1C1C1E' : '#FFFFFF'
@@ -96,37 +101,21 @@ export default function TickersScreen() {
   const placeholder = isDark ? '#636366' : '#8E8E93'
   const borderColor = isDark ? '#2A2A2E' : '#E5E5EA'
 
-  // ─── Lifecycle ───────────────────────────────────────────────────────────────
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
   useEffect(() => {
     AsyncStorage.getItem('userId').then(id => {
-      if (id) {
-        let cleanId = id
-        if (cleanId.startsWith('"') && cleanId.endsWith('"')) {
-          cleanId = cleanId.slice(1, -1)
-        }
-        setUserId(cleanId)
+      if (!id) return
+      let cleanId = id
+      if (cleanId.startsWith('"') && cleanId.endsWith('"')) {
+        cleanId = cleanId.slice(1, -1)
       }
+      setUserId(cleanId)
     })
   }, [])
 
-  const fetchTickers = async () => {
-    try {
-      setError(null)
-      const res  = await fetch(`${API_URL}/tickers`)
-      const json = await res.json()
-      if (json.success && json.tickers) setTickers(json.tickers)
-    } catch (err) {
-      console.error(err)
-      setError('Error cargando activos')
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
-  }
-
   const fetchFollowedIds = async (uid: string) => {
     try {
-      const res  = await fetch(`${API_URL}/followTickets/all/${uid}`)
+      const res  = await fetch(`${EXPRESS_API}/followTickets/all/${uid}`)
       const json = await res.json()
       if (Array.isArray(json)) {
         setFollowedIds(new Set(json.map((f: any) => String(f.ticketId))))
@@ -137,51 +126,41 @@ export default function TickersScreen() {
   }
 
   useEffect(() => {
-    fetchTickers()
-    const interval = setInterval(fetchTickers, 30000)
-    return () => clearInterval(interval)
-  }, [])
-
-  useEffect(() => {
     if (userId) fetchFollowedIds(userId)
   }, [userId])
 
   const handleRefresh = () => {
     setRefreshing(true)
-    fetchTickers()
+    refresh()
     if (userId) fetchFollowedIds(userId)
+    setTimeout(() => setRefreshing(false), 800)
   }
 
-  const toggleFollow = async (ticketId: string) => {
+  const toggleFollow = async (tickerSymbol: string) => {
     if (!userId) return
-    const isFollowing = followedIds.has(ticketId)
-    
-    // UI update optimista
-    const newFollowed = new Set(followedIds)
-    if (isFollowing) {
-      newFollowed.delete(ticketId)
-    } else {
-      newFollowed.add(ticketId)
-    }
-    setFollowedIds(newFollowed)
+    const isFollowing = followedIds.has(tickerSymbol)
+
+    // Optimistic UI update
+    const next = new Set(followedIds)
+    isFollowing ? next.delete(tickerSymbol) : next.add(tickerSymbol)
+    setFollowedIds(next)
 
     try {
       if (isFollowing) {
-        await fetch(`${API_URL}/followTickets/unfollow`, {
+        await fetch(`${EXPRESS_API}/followTickets/unfollow`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, ticketId })
+          body: JSON.stringify({ userId, ticketId: tickerSymbol }),
         })
       } else {
-        await fetch(`${API_URL}/followTickets/follow`, {
+        await fetch(`${EXPRESS_API}/followTickets/follow`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, ticketId })
+          body: JSON.stringify({ userId, ticketId: tickerSymbol }),
         })
       }
-    } catch (err) {
-      console.error('Error toggling follow:', err)
-      fetchFollowedIds(userId) // revert
+    } catch {
+      if (userId) fetchFollowedIds(userId) // revert on error
     }
   }
 
@@ -194,7 +173,7 @@ export default function TickersScreen() {
     setShowRange(false)
   }
 
-  // ─── Filtering + Sorting pipeline ────────────────────────────────────────────
+  // ── Filter + sort pipeline ─────────────────────────────────────────────────
   const processed = (() => {
     let list = [...tickers]
 
@@ -202,15 +181,15 @@ export default function TickersScreen() {
     if (search.trim()) {
       const q = search.trim().toUpperCase()
       list = list.filter(
-        t => t.symbol.includes(q) || t.name.toUpperCase().includes(q)
+        t => t.ticker.includes(q) || t.name.toUpperCase().includes(q)
       )
     }
 
     // 2. Performance filter
     switch (perfFilter) {
-      case 'winners':  list = list.filter(t => t.change > 0);  break
-      case 'losers':   list = list.filter(t => t.change < 0);  break
-      case 'followed': list = list.filter(t => followedIds.has(String(t._id))); break
+      case 'winners':  list = list.filter(t => t.change > 0); break
+      case 'losers':   list = list.filter(t => t.change < 0); break
+      case 'followed': list = list.filter(t => followedIds.has(t.ticker)); break
     }
 
     // 3. Range filter (% change)
@@ -221,12 +200,11 @@ export default function TickersScreen() {
 
     // 4. Sort
     switch (sortOption) {
-      case 'change_desc':    list.sort((a, b) => b.change - a.change);                   break
-      case 'change_asc':     list.sort((a, b) => a.change - b.change);                   break
-      case 'marketcap_desc': list.sort((a, b) => (b.marketCap || 0) - (a.marketCap || 0)); break
-      case 'volume_desc':    list.sort((a, b) => (b.volume || 0) - (a.volume || 0));     break
-      case 'az':             list.sort((a, b) => a.symbol.localeCompare(b.symbol));      break
-      case 'za':             list.sort((a, b) => b.symbol.localeCompare(a.symbol));      break
+      case 'change_desc': list.sort((a, b) => b.change - a.change);                break
+      case 'change_asc':  list.sort((a, b) => a.change - b.change);                break
+      case 'volume_desc': list.sort((a, b) => (b.volume || 0) - (a.volume || 0)); break
+      case 'az':          list.sort((a, b) => a.ticker.localeCompare(b.ticker));   break
+      case 'za':          list.sort((a, b) => b.ticker.localeCompare(a.ticker));   break
     }
 
     return list
@@ -241,7 +219,7 @@ export default function TickersScreen() {
 
   const currentSort = SORT_OPTIONS.find(s => s.key === sortOption)
 
-  // ─── Loading State ────────────────────────────────────────────────────────────
+  // ── Loading ────────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: bgMain }]}>
@@ -253,7 +231,7 @@ export default function TickersScreen() {
     )
   }
 
-  // ─── Render ───────────────────────────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: bgMain }]} edges={['top']}>
 
@@ -322,7 +300,7 @@ export default function TickersScreen() {
               <Text style={[styles.chipText, { color: active ? '#FFFFFF' : textSec }]}>
                 {chip.label}
               </Text>
-              {(chip.key === 'followed' && followedIds.size > 0) ? (
+              {chip.key === 'followed' && followedIds.size > 0 ? (
                 <View style={[styles.chipCount, { backgroundColor: active ? 'rgba(255,255,255,0.3)' : borderColor }]}>
                   <Text style={[styles.chipCountText, { color: active ? '#FFFFFF' : textSec }]}>
                     {followedIds.size}
@@ -336,66 +314,34 @@ export default function TickersScreen() {
 
       {/* ── Toolbar: Sort + Range + Clear ── */}
       <View style={[styles.toolbar, { borderBottomColor: borderColor }]}>
-        {/* Sort button */}
         <TouchableOpacity
-          style={[
-            styles.toolbarBtn,
-            { backgroundColor: sortOption !== 'default' ? '#0066FF18' : inputBg },
-          ]}
+          style={[styles.toolbarBtn, { backgroundColor: sortOption !== 'default' ? '#0066FF18' : inputBg }]}
           onPress={() => setShowSortModal(true)}
         >
-          <MaterialCommunityIcons
-            name="sort"
-            size={15}
-            color={sortOption !== 'default' ? '#0066FF' : textSec}
-          />
-          <Text
-            style={[styles.toolbarBtnText, { color: sortOption !== 'default' ? '#0066FF' : textSec }]}
-            numberOfLines={1}
-          >
+          <MaterialCommunityIcons name="sort" size={15} color={sortOption !== 'default' ? '#0066FF' : textSec} />
+          <Text style={[styles.toolbarBtnText, { color: sortOption !== 'default' ? '#0066FF' : textSec }]} numberOfLines={1}>
             {sortOption !== 'default' ? currentSort?.label : 'Ordenar'}
           </Text>
-          <MaterialCommunityIcons
-            name="chevron-down"
-            size={13}
-            color={sortOption !== 'default' ? '#0066FF' : textSec}
-          />
+          <MaterialCommunityIcons name="chevron-down" size={13} color={sortOption !== 'default' ? '#0066FF' : textSec} />
         </TouchableOpacity>
 
-        {/* Range button */}
         <TouchableOpacity
-          style={[
-            styles.toolbarBtn,
-            { backgroundColor: (minChange || maxChange) ? '#0066FF18' : inputBg },
-          ]}
+          style={[styles.toolbarBtn, { backgroundColor: (minChange || maxChange) ? '#0066FF18' : inputBg }]}
           onPress={() => setShowRange(v => !v)}
         >
-          <MaterialCommunityIcons
-            name="filter-variant"
-            size={15}
-            color={(minChange || maxChange) ? '#0066FF' : textSec}
-          />
+          <MaterialCommunityIcons name="filter-variant" size={15} color={(minChange || maxChange) ? '#0066FF' : textSec} />
           <Text style={[styles.toolbarBtnText, { color: (minChange || maxChange) ? '#0066FF' : textSec }]}>
-            {minChange || maxChange
-              ? `${minChange || '−∞'}% → ${maxChange || '+∞'}%`
-              : 'Rango %'}
+            {minChange || maxChange ? `${minChange || '−∞'}% → ${maxChange || '+∞'}%` : 'Rango %'}
           </Text>
           {(minChange || maxChange) ? (
-            <TouchableOpacity
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              onPress={() => { setMinChange(''); setMaxChange('') }}
-            >
+            <TouchableOpacity hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} onPress={() => { setMinChange(''); setMaxChange('') }}>
               <MaterialCommunityIcons name="close-circle" size={14} color="#0066FF" />
             </TouchableOpacity>
           ) : null}
         </TouchableOpacity>
 
-        {/* Clear all */}
         {activeFiltersCount > 0 ? (
-          <TouchableOpacity
-            style={[styles.toolbarBtnSmall, { backgroundColor: '#FF333318' }]}
-            onPress={resetAllFilters}
-          >
+          <TouchableOpacity style={[styles.toolbarBtnSmall, { backgroundColor: '#FF333318' }]} onPress={resetAllFilters}>
             <MaterialCommunityIcons name="close" size={15} color="#FF3333" />
           </TouchableOpacity>
         ) : null}
@@ -404,9 +350,7 @@ export default function TickersScreen() {
       {/* ── Range Panel ── */}
       {showRange ? (
         <View style={[styles.rangePanel, { backgroundColor: bgSurface, borderBottomColor: borderColor }]}>
-          <Text style={[styles.rangePanelTitle, { color: textSec }]}>
-            Filtrar por cambio % del día
-          </Text>
+          <Text style={[styles.rangePanelTitle, { color: textSec }]}>Filtrar por cambio % del día</Text>
           <View style={styles.rangeRow}>
             <View style={[styles.rangeField, { backgroundColor: inputBg }]}>
               <Text style={[styles.rangeFieldLabel, { color: textSec }]}>Mínimo %</Text>
@@ -448,10 +392,10 @@ export default function TickersScreen() {
       {/* ── Tickers List ── */}
       <FlatList
         data={processed}
-        keyExtractor={t => t._id}
-        renderItem={({ item }) => (
+        keyExtractor={t => t.ticker}
+        renderItem={({ item }: { item: TickerSummary }) => (
           <TickerCardPro
-            symbol={item.symbol}
+            symbol={item.ticker}
             name={item.name}
             price={item.price}
             change={item.change}
@@ -459,10 +403,12 @@ export default function TickersScreen() {
             dayHigh={item.dayHigh}
             dayLow={item.dayLow}
             volume={item.volume}
-            marketCap={item.marketCap}
-            isFollowed={followedIds.has(String(item._id))}
-            onToggleFollow={() => toggleFollow(String(item._id))}
-            onPress={() => router.push({ pathname: '/(app)/(tickers)/[id]', params: { id: item._id, symbol: item.symbol } })}
+            isFollowed={followedIds.has(item.ticker)}
+            onToggleFollow={() => toggleFollow(item.ticker)}
+            onPress={() => router.push({
+              pathname: '/(app)/(tickers)/[id]',
+              params: { id: item.ticker },
+            })}
           />
         )}
         style={{ backgroundColor: bgMain }}
@@ -495,21 +441,11 @@ export default function TickersScreen() {
       />
 
       {/* ── Sort Modal ── */}
-      <Modal
-        visible={showSortModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowSortModal(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowSortModal(false)}
-        >
+      <Modal visible={showSortModal} transparent animationType="slide" onRequestClose={() => setShowSortModal(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowSortModal(false)}>
           <View style={[styles.modalSheet, { backgroundColor: bgModal }]}>
             <View style={[styles.modalHandle, { backgroundColor: borderColor }]} />
             <Text style={[styles.modalTitle, { color: textPrimary }]}>Ordenar por</Text>
-
             {SORT_OPTIONS.map((opt, i) => {
               const active = sortOption === opt.key
               const isLast = i === SORT_OPTIONS.length - 1
@@ -523,18 +459,10 @@ export default function TickersScreen() {
                   onPress={() => { setSortOption(opt.key); setShowSortModal(false) }}
                 >
                   <View style={[styles.sortIconWrap, { backgroundColor: active ? '#0066FF' : inputBg }]}>
-                    <MaterialCommunityIcons
-                      name={opt.icon as any}
-                      size={17}
-                      color={active ? '#FFFFFF' : textSec}
-                    />
+                    <MaterialCommunityIcons name={opt.icon as any} size={17} color={active ? '#FFFFFF' : textSec} />
                   </View>
-                  <Text style={[styles.sortRowLabel, { color: active ? '#0066FF' : textPrimary }]}>
-                    {opt.label}
-                  </Text>
-                  {active ? (
-                    <MaterialCommunityIcons name="check-circle" size={20} color="#0066FF" />
-                  ) : null}
+                  <Text style={[styles.sortRowLabel, { color: active ? '#0066FF' : textPrimary }]}>{opt.label}</Text>
+                  {active ? <MaterialCommunityIcons name="check-circle" size={20} color="#0066FF" /> : null}
                 </TouchableOpacity>
               )
             })}
@@ -546,11 +474,9 @@ export default function TickersScreen() {
   )
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// ── Styles ─────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-
-  // ── Header
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -559,26 +485,18 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  headerTitle: { fontSize: 28, fontWeight: '700' },
+  headerTitle:    { fontSize: 28, fontWeight: '700' },
   headerSubtitle: { fontSize: 13, marginTop: 3 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  iconBtn: {
-    width: 38, height: 38,
-    borderRadius: 19,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  headerRight:    { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  iconBtn: { width: 38, height: 38, borderRadius: 19, justifyContent: 'center', alignItems: 'center' },
   activeBadge: {
     backgroundColor: '#0066FF',
     borderRadius: 10,
     minWidth: 20, height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: 'center', alignItems: 'center',
     paddingHorizontal: 5,
   },
   activeBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
-
-  // ── Search
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -590,8 +508,6 @@ const styles = StyleSheet.create({
     height: 44,
   },
   searchInput: { flex: 1, fontSize: 15, fontWeight: '400' },
-
-  // ── Chips
   chipsScroll: { flexGrow: 0, marginTop: 10, minHeight: 45, maxHeight: 45 },
   chipsContent: { paddingHorizontal: 16, gap: 8, paddingBottom: 10, alignItems: 'center' },
   chip: {
@@ -605,14 +521,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   chipText: { fontSize: 13, fontWeight: '600' },
-  chipCount: {
-    borderRadius: 8,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-  },
+  chipCount: { borderRadius: 8, paddingHorizontal: 5, paddingVertical: 1 },
   chipCountText: { fontSize: 10, fontWeight: '700' },
-
-  // ── Toolbar
   toolbar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -632,15 +542,7 @@ const styles = StyleSheet.create({
     maxWidth: 200,
   },
   toolbarBtnText: { fontSize: 13, fontWeight: '500', flex: 1 },
-  toolbarBtnSmall: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  // ── Range Panel
+  toolbarBtnSmall: { width: 32, height: 32, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
   rangePanel: {
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -648,17 +550,10 @@ const styles = StyleSheet.create({
   },
   rangePanelTitle: { fontSize: 12, fontWeight: '600', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
   rangeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  rangeField: {
-    flex: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
+  rangeField: { flex: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10 },
   rangeFieldLabel: { fontSize: 11, fontWeight: '600', marginBottom: 2 },
   rangeFieldInput: { fontSize: 16, fontWeight: '600' },
   rangeDash: { width: 20, height: 2, borderRadius: 1 },
-
-  // ── Error
   errorBanner: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -672,11 +567,7 @@ const styles = StyleSheet.create({
   },
   errorText:   { color: '#FFFFFF', fontWeight: '600', fontSize: 14 },
   errorAction: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
-
-  // ── List
   listContent: { paddingVertical: 8, paddingBottom: 110 },
-
-  // ── Empty
   emptyContainer: { alignItems: 'center', marginTop: 80, paddingHorizontal: 32 },
   emptyTitle:     { fontSize: 18, fontWeight: '700', marginTop: 16, marginBottom: 6 },
   emptySubtitle:  { fontSize: 14, textAlign: 'center', lineHeight: 20 },
@@ -688,17 +579,9 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   emptyResetText: { color: '#FFFFFF', fontWeight: '600', fontSize: 14 },
-
-  // ── Loading
   centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText:     { marginTop: 12, fontSize: 16, fontWeight: '500' },
-
-  // ── Sort Modal
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.45)',
-  },
+  modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' },
   modalSheet: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
@@ -711,24 +594,9 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 16,
   },
-  modalHandle: {
-    width: 38, height: 4,
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 20,
-  },
-  modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 16 },
-  sortRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    paddingVertical: 13,
-  },
-  sortIconWrap: {
-    width: 36, height: 36,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  modalHandle: { width: 38, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
+  modalTitle:  { fontSize: 18, fontWeight: '700', marginBottom: 16 },
+  sortRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 13 },
+  sortIconWrap: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
   sortRowLabel: { flex: 1, fontSize: 15, fontWeight: '500' },
 })

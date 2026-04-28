@@ -1,0 +1,94 @@
+services:
+
+  data-kafka:
+    image: apache/kafka:3.7.0
+    container_name: data-kafka
+
+    ports:
+      - "29093:29093"
+
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@data-kafka:9095
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29093,CONTROLLER://0.0.0.0:9095
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://data-kafka:29093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+
+      CLUSTER_ID: "data-cluster-001"
+
+    networks:
+      - kafka-net
+
+  data-kafka-init:
+    image: apache/kafka:3.7.0
+    container_name: data-kafka-init
+    depends_on:
+      - data-kafka
+    command: >
+      /bin/sh -c "
+        echo 'Waiting for Kafka...';
+        sleep 15;
+
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server data-kafka:29093 --list;
+
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server data-kafka:29093 --create --if-not-exists --topic raw_candles_1m --partitions 3 --replication-factor 1;
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server data-kafka:29093 --create --if-not-exists --topic agg_candles --partitions 3 --replication-factor 1;
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server data-kafka:29093 --create --if-not-exists --topic market_indicators --partitions 3 --replication-factor 1;
+
+        echo 'Topics ready';
+      "
+    restart: "no"
+    networks:
+      - kafka-net
+
+  data-producer:
+    build:
+      context: ./api
+    container_name: data-producer
+    depends_on:
+      - data-kafka-init
+    environment:
+      KAFKA_BROKER: data-kafka:29093
+      FASTAPI_URL: http://host.docker.internal:8000
+    command: ["python", "ingestion/producer_candles.py"]
+    restart: unless-stopped
+    networks:
+      - kafka-net
+
+  data-processor:
+    build:
+      context: ./api
+    container_name: data-processor
+    depends_on:
+      - data-kafka-init
+    environment:
+      KAFKA_BROKER: data-kafka:29093
+    command: ["python", "processing/consumer_candles.py"]
+    restart: unless-stopped
+    networks:
+      - kafka-net
+
+  data-api:
+    build:
+      context: ./api
+    container_name: data-api
+    ports:
+      - "8003:8003"
+    depends_on:
+      - data-kafka-init
+    environment:
+      KAFKA_BROKER: data-kafka:29093
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8003"]
+    restart: unless-stopped
+    networks:
+      - kafka-net
+
+volumes:
+  data_kafka_data:
+
+networks:
+  kafka-net:
+    external: true

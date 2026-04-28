@@ -1,26 +1,66 @@
 """
-News Feed API — stateless, MongoDB-backed.
+News Feed API — stateless, Kafka-backed in-memory store.
 
 Endpoints:
-  GET /news?mode=top|latest&limit=50&ticker=INTC  → financial news feed
+  GET /news?mode=top|latest&limit=20&ticker=INTC  → financial news feed
   GET /news/{id}                                   → single article by _id
   GET /trending?window=1h|6h|24h                  → trending tickers
   GET /health                                      → liveness + article count
 """
 
+import json
 import logging
+import threading
 from typing import Literal, Optional
 
+from confluent_kafka import Consumer, KafkaError
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from db.mongo import create_indexes, get_collection
+from config import ENRICHED_TOPIC, KAFKA_BROKER
 from schemas.news import NewsItem, TrendingTicker
 from services.ranking import sort_by_score
 from services.trending import get_trending
+import services.store as store
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
+
+ALLOWED_TICKERS = {
+    "GOOGL", "MSFT", "NFLX", "META", "INTC", "AAPL", "WBD", "SBUX", "SQ",
+    "ORCL", "QCOM", "FOX", "CHTR", "AMZN", "COST", "NVDA", "TSLA", "CMCSA",
+    "PEP", "HON", "WBA", "CSCO", "MAR", "AMGN", "UBER",
+}
+
+
+def _kafka_consumer_loop() -> None:
+    consumer = Consumer({
+        "bootstrap.servers":  KAFKA_BROKER,
+        "group.id":           "news-api-consumer",
+        "auto.offset.reset":  "earliest",
+        "enable.auto.commit": True,
+    })
+    consumer.subscribe([ENRICHED_TOPIC])
+    log.info("News API Kafka consumer started on '%s'", ENRICHED_TOPIC)
+    try:
+        while True:
+            msg = consumer.poll(timeout=1.0)
+            if msg is None:
+                continue
+            if msg.error():
+                if msg.error().code() == KafkaError._PARTITION_EOF:
+                    continue
+                log.error("Kafka error: %s", msg.error())
+                continue
+            try:
+                article = json.loads(msg.value().decode("utf-8"))
+                store.ingest(article)
+            except Exception as exc:
+                log.error("Failed to ingest article: %s", exc)
+    finally:
+        consumer.close()
+
 
 app = FastAPI(title="News Feed API")
 
@@ -32,115 +72,64 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Tickers soportados — solo estos aparecen en queries de filtrado
-ALLOWED_TICKERS = {
-    "GOOGL", "MSFT", "NFLX", "META", "INTC", "AAPL", "WBD", "SBUX", "SQ",
-    "ORCL", "QCOM", "FOX", "CHTR", "AMZN", "COST", "NVDA", "TSLA", "CMCSA",
-    "PEP", "HON", "WBA", "CSCO", "MAR", "AMGN", "UBER",
-}
-
 
 @app.on_event("startup")
-async def startup() -> None:
-    await create_indexes()
-    log.info("MongoDB indexes ready")
+def startup() -> None:
+    t = threading.Thread(target=_kafka_consumer_loop, daemon=True)
+    t.start()
+    log.info("Background Kafka consumer thread started")
 
 
 # ── Feed ──────────────────────────────────────────────────────────────────────
 
 @app.get("/news", response_model=list[NewsItem])
-async def get_news(
+def get_news(
     mode:   Literal["top", "latest"] = Query("top"),
     limit:  int                       = Query(20, ge=1, le=100),
     page:   int                       = Query(1, ge=1),
     ticker: Optional[str]             = Query(None),
 ) -> list[NewsItem]:
-    col  = get_collection()
     skip = (page - 1) * limit
-
-    # Filtrado por ticker (ignora tickers no permitidos)
-    query: dict = {}
+    ticker_filter = None
     if ticker:
         ticker = ticker.upper()
         if ticker not in ALLOWED_TICKERS:
             return []
-        query = {"tickers": ticker}
+        ticker_filter = ticker
 
     if mode == "latest":
-        cursor = col.find(query, {"title_norm": 0}).sort("date", -1).skip(skip).limit(limit)
-        docs = await cursor.to_list(length=limit)
+        docs = store.get_articles(ticker=ticker_filter, sort_by="date", limit=limit, skip=skip)
         return [NewsItem(**d) for d in docs]
 
-    # mode == "top": pool para re-rank = siguiente ventana de limit*4 artículos
     pool = limit * 4
-    cursor = col.find(query, {"title_norm": 0}).sort("importance_score", -1).skip(skip).limit(pool)
-    docs = await cursor.to_list(length=pool)
+    docs = store.get_articles(ticker=ticker_filter, sort_by="importance_score", limit=pool, skip=skip)
     ranked = sort_by_score(docs)
     return [NewsItem(**d) for d in ranked[:limit]]
 
 
-# ── Detalle ───────────────────────────────────────────────────────────────────
+# ── Detail ────────────────────────────────────────────────────────────────────
 
 @app.get("/news/{news_id}", response_model=NewsItem)
-async def get_news_by_id(news_id: str) -> NewsItem:
-    col = get_collection()
-    doc = await col.find_one({"_id": news_id}, {"title_norm": 0})
+def get_news_by_id(news_id: str) -> NewsItem:
+    doc = store.get_article_by_id(news_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Article not found")
     return NewsItem(**doc)
 
-# ── Tickers ──────────────────────────────────────────────────────────────────
-
-@app.get("/news/{ticker}", response_model=list[NewsItem])
-async def get_news_by_ticker(
-    ticker: str,
-    mode:   Literal["top", "latest"] = Query("top"),
-    limit:  int                       = Query(20, ge=1, le=100),
-    page:   int                       = Query(1, ge=1),
-) -> list[NewsItem]:
-    """
-    Obtiene noticias para un ticker específico.
-
-    - mode="top"   → ordenado por importance_score (defecto)
-    - mode="latest" → cronológico
-    """
-    col = get_collection()
-    skip = (page - 1) * limit
-
-    ticker = ticker.upper()
-    if ticker not in ALLOWED_TICKERS:
-        return []  # ticker not monitored
-
-    query = {"tickers": ticker}
-
-    if mode == "latest":
-        # latest chronological
-        cursor = col.find(query, {"title_norm": 0}).sort("date", -1).skip(skip).limit(limit)
-        docs = await cursor.to_list(length=limit)
-        return [NewsItem(**d) for d in docs]
-
-    # mode == "top": rank by importance_score (sample pool)
-    pool = limit * 4
-    cursor = col.find(query, {"title_norm": 0}).sort("importance_score", -1).skip(skip).limit(pool)
-    docs = await cursor.to_list(length=pool)
-    ranked = sort_by_score(docs)
-    return [NewsItem(**d) for d in ranked[:limit]]
 
 # ── Trending ──────────────────────────────────────────────────────────────────
 
 @app.get("/trending", response_model=list[TrendingTicker])
-async def trending(
+def trending(
     window: Literal["1h", "6h", "24h"] = Query("24h"),
 ) -> list[TrendingTicker]:
-    col = get_collection()
-    results = await get_trending(col, window=window)
+    articles = store.get_all_articles()
+    results  = get_trending(articles, window=window)
     return [TrendingTicker(**r) for r in results]
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
 
 @app.get("/health")
-async def health() -> JSONResponse:
-    col = get_collection()
-    count = await col.estimated_document_count()
-    return JSONResponse({"status": "ok", "articles": count})
+def health() -> JSONResponse:
+    return JSONResponse({"status": "ok", "articles": store.count_articles()})
