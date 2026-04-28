@@ -36,7 +36,7 @@ def _kafka_consumer_loop() -> None:
         "bootstrap.servers":  KAFKA_BROKER,
         "group.id":           "data-api-consumer",
         "auto.offset.reset":  "earliest",
-        "enable.auto.commit": True,
+        "enable.auto.commit": False,
     })
     consumer.subscribe([RAW_CANDLES_TOPIC, AGG_CANDLES_TOPIC])
     log.info("API Kafka consumer started on [%s, %s]", RAW_CANDLES_TOPIC, AGG_CANDLES_TOPIC)
