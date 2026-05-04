@@ -62,4 +62,4 @@ jest-cache/
 *.tsbuildinfo
 
 # 📁 Data directories
-/yfinance-api/data
+yfinance-api/data
