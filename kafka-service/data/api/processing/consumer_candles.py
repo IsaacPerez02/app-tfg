@@ -51,7 +51,7 @@ def run():
 
     consumer = Consumer({
         "bootstrap.servers": KAFKA_BROKER,
-        "group.id": "candle-aggregator",
+        "group.id": "candle-aggregator-v2",  # FIX: new group.id clears stale committed offsets from prior runs
         "auto.offset.reset": "earliest",
         "enable.auto.commit": False,
     })
@@ -101,6 +101,9 @@ def run():
 
                 # ── FEED BUFFER ──
                 closed = buf.ingest(ticker, candle)
+
+                # FIX: commit offset after successful processing (auto.commit is disabled)
+                consumer.commit(asynchronous=True)
 
                 # ── EMIT AGGREGATED ──
                 for tf, ws, ohlcv in closed:

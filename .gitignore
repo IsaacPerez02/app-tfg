@@ -60,3 +60,6 @@ jest-cache/
 
 # 🧵 TypeScript
 *.tsbuildinfo
+
+# 📁 Data directories
+/yfinance-api/data

@@ -74,6 +74,14 @@ def ingest_candle(candle: dict) -> None:
                 seen.discard(c["timestamp"])
 
 
+# FIX: datetime objects are not JSON-serializable; serialize timestamps before returning
+def _export(c: dict) -> dict:
+    d = dict(c)
+    if isinstance(d.get("timestamp"), datetime):
+        d["timestamp"] = d["timestamp"].isoformat()
+    return d
+
+
 # ==============================
 # QUERY
 # ==============================
@@ -96,7 +104,7 @@ def get_candles(
         end = _normalize_ts(end)
         items = [c for c in items if c["timestamp"] <= end]
 
-    return items[-limit:]
+    return [_export(c) for c in items[-limit:]]
 
 
 # ==============================
@@ -105,7 +113,7 @@ def get_candles(
 def get_latest_candle(ticker: str, timeframe: str) -> Optional[dict]:
     with _lock:
         lst = _store.get(ticker, {}).get(timeframe, [])
-        return dict(lst[-1]) if lst else None
+        return _export(lst[-1]) if lst else None
 
 
 # ==============================

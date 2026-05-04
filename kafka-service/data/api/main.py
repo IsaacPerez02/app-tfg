@@ -34,7 +34,7 @@ ALL_TIMEFRAMES = ["1m"] + TIMEFRAMES
 def _kafka_consumer_loop() -> None:
     consumer = Consumer({
         "bootstrap.servers":  KAFKA_BROKER,
-        "group.id":           "data-api-consumer",
+        "group.id":           "data-api-consumer-v2",  # FIX: clears stale committed offsets; in-memory store rebuilds from earliest on every restart anyway
         "auto.offset.reset":  "earliest",
         "enable.auto.commit": False,
     })

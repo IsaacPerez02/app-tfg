@@ -19,6 +19,14 @@ services:
 
       CLUSTER_ID: "data-cluster-001"
 
+      # FIX: single-broker setup requires replication factor 1 for internal topics.
+      # Without these, Kafka defaults to RF=3, fails to create __consumer_offsets,
+      # and returns COORDINATOR_NOT_AVAILABLE to every consumer group forever.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_MIN_INSYNC_REPLICAS: "1"
+
     networks:
       - kafka-net
 
