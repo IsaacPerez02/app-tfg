@@ -1,0 +1,58 @@
+services:
+
+  sentiment-kafka-init:
+    image: apache/kafka:3.7.0
+    container_name: sentiment-kafka-init
+    command: >
+      /bin/sh -c "
+        echo 'Waiting for news Kafka...';
+        sleep 20;
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic sentiment_enriched --partitions 3 --replication-factor 1 &&
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic sentiment.thermometer.AAPL --partitions 1 --replication-factor 1 &&
+        echo 'sentiment_enriched and sentiment.thermometer.AAPL topics ready'
+      "
+    restart: "no"
+    networks:
+      - kafka-net
+
+  sentiment-api:
+    build:
+      context: ./api
+    container_name: sentiment-api
+    ports:
+      - "8004:8004"
+    depends_on:
+      - sentiment-kafka-init
+      - mongo
+    environment:
+      KAFKA_BROKER: kafka:29092
+      KAFKA_INPUT_TOPIC: enriched_news
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB: sentiment
+      MONGO_COLLECTION: sentiment_news
+      MODEL_PATH: /app/finbert-aapl-cls
+      THERMOMETER_PARQUET: /app/aapl_thermometer_daily.parquet
+    volumes:
+      - ./finbert-aapl-cls:/app/finbert-aapl-cls:ro
+      - ../../tfg/outputs/aapl_thermometer_daily.parquet:/app/aapl_thermometer_daily.parquet:ro
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8004"]
+    restart: unless-stopped
+    networks:
+      - kafka-net
+
+  mongo:
+    image: mongo:7.0
+    container_name: sentiment-mongo
+    ports:
+      - "27018:27017"
+    volumes:
+      - sentiment_mongo_data:/data/db
+    networks:
+      - kafka-net
+
+volumes:
+  sentiment_mongo_data:
+
+networks:
+  kafka-net:
+    external: true

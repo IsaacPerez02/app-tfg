@@ -24,13 +24,14 @@ import {
   ScrollView,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'expo-router'
 import { useColorScheme } from '@/hooks/use-color-scheme'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
 import { TickerCardPro } from '@/components/cards/TickedCardPro'
 import { useTickersList } from '@/hooks/use-tickers-list'
 import { TickerSummary } from '@/types'
+import { marketDataService } from '@/services/market-data'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
 // Follow/unfollow is user-social data — stays on Express
@@ -78,9 +79,12 @@ export default function TickersScreen() {
   const { tickers, loading, error, refresh } = useTickersList()
 
   // ── User-social data — follow state ───────────────────────────────────────
-  const [followedIds, setFollowedIds] = useState<Set<string>>(new Set())
-  const [userId,      setUserId]      = useState<string | null>(null)
-  const [refreshing,  setRefreshing]  = useState(false)
+  const [followedIds,    setFollowedIds]    = useState<Set<string>>(new Set())
+  const [userId,         setUserId]         = useState<string | null>(null)
+  const [refreshing,     setRefreshing]     = useState(false)
+  // sparklineData: ticker → array of last ~20 close prices (1h candles)
+  const [sparklineData,  setSparklineData]  = useState<Record<string, number[]>>({})
+  const sparklineFetched = useRef(false)
 
   // ── Filters ────────────────────────────────────────────────────────────────
   const [search,        setSearch]        = useState('')
@@ -129,8 +133,30 @@ export default function TickersScreen() {
     if (userId) fetchFollowedIds(userId)
   }, [userId])
 
+  // Fetch sparkline data (1d candles → last 20 closes) for all tickers
+  const fetchSparklines = async (symbols: string[]) => {
+    const results: Record<string, number[]> = {}
+    await Promise.all(symbols.map(async (sym) => {
+      try {
+        const candles = await marketDataService.getCandles(sym, '1h', 24)
+        if (candles && candles.length >= 2) {
+          results[sym] = candles.map(c => c.close)
+        }
+      } catch { /* silencioso */ }
+    }))
+    setSparklineData(prev => ({ ...prev, ...results }))
+  }
+
+  useEffect(() => {
+    if (!sparklineFetched.current && tickers.length > 0) {
+      sparklineFetched.current = true
+      fetchSparklines(tickers.map(t => t.ticker))
+    }
+  }, [tickers])
+
   const handleRefresh = () => {
     setRefreshing(true)
+    sparklineFetched.current = false
     refresh()
     if (userId) fetchFollowedIds(userId)
     setTimeout(() => setRefreshing(false), 800)
@@ -403,6 +429,7 @@ export default function TickersScreen() {
             dayHigh={item.dayHigh}
             dayLow={item.dayLow}
             volume={item.volume}
+            sparklineData={sparklineData[item.ticker]}
             isFollowed={followedIds.has(item.ticker)}
             onToggleFollow={() => toggleFollow(item.ticker)}
             onPress={() => router.push({

@@ -66,6 +66,20 @@ services:
     networks:
       - kafka-net
 
+  data-indicators-producer:
+    build:
+      context: ./api
+    container_name: data-indicators-producer
+    depends_on:
+      - data-kafka-init
+    environment:
+      KAFKA_BROKER: data-kafka:29093
+      FASTAPI_URL: http://host.docker.internal:8000
+    command: ["python", "ingestion/producer_indicators.py"]
+    restart: unless-stopped
+    networks:
+      - kafka-net
+
   data-processor:
     build:
       context: ./api

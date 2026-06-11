@@ -13,6 +13,8 @@ Endpoints:
 import json
 import logging
 import threading
+import urllib.request
+import math
 from datetime import datetime
 from typing import Optional
 
@@ -21,7 +23,7 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from config import AGG_CANDLES_TOPIC, KAFKA_BROKER, RAW_CANDLES_TOPIC, TICKER_METADATA, TICKERS, TIMEFRAMES
+from config import AGG_CANDLES_TOPIC, KAFKA_BROKER, MARKET_INDICATORS_TOPIC, RAW_CANDLES_TOPIC, TICKER_METADATA, TICKERS, TIMEFRAMES
 import services.candles as store
 import services.indicators as store_indicators
 
@@ -38,8 +40,8 @@ def _kafka_consumer_loop() -> None:
         "auto.offset.reset":  "earliest",
         "enable.auto.commit": False,
     })
-    consumer.subscribe([RAW_CANDLES_TOPIC, AGG_CANDLES_TOPIC])
-    log.info("API Kafka consumer started on [%s, %s]", RAW_CANDLES_TOPIC, AGG_CANDLES_TOPIC)
+    consumer.subscribe([RAW_CANDLES_TOPIC, AGG_CANDLES_TOPIC, MARKET_INDICATORS_TOPIC])
+    log.info("API Kafka consumer started on [%s, %s, %s]", RAW_CANDLES_TOPIC, AGG_CANDLES_TOPIC, MARKET_INDICATORS_TOPIC)
     try:
         while True:
             msg = consumer.poll(timeout=1.0)
@@ -51,10 +53,14 @@ def _kafka_consumer_loop() -> None:
                 log.error("Kafka error: %s", msg.error())
                 continue
             try:
-                candle = json.loads(msg.value())
-                store.ingest_candle(candle)
+                topic = msg.topic()
+                payload = json.loads(msg.value())
+                if topic == MARKET_INDICATORS_TOPIC:
+                    store_indicators.ingest_indicator(payload)
+                else:
+                    store.ingest_candle(payload)
             except Exception as exc:
-                log.error("Failed to ingest candle: %s", exc)
+                log.error("Failed to ingest message from %s: %s", msg.topic(), exc)
     finally:
         consumer.close()
 
@@ -269,3 +275,30 @@ def health_indicators() -> JSONResponse:
         "status": "ok",
         "indicators": stats,
     })
+
+
+# ── Fundamentals proxy ────────────────────────────────────────────────────
+
+def _clean_nan(obj):
+    if isinstance(obj, dict):
+        return {k: _clean_nan(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_clean_nan(v) for v in obj]
+    elif isinstance(obj, float) and math.isnan(obj):
+        return None
+    return obj
+
+
+@app.get("/fundamentals/{ticker}")
+def fundamentals_proxy(ticker: str) -> JSONResponse:
+    """Proxy fundamentals from yfinance-api (port 8000) so frontend only needs one base URL."""
+    if ticker not in TICKERS:
+        return JSONResponse({"error": f"Unknown ticker: {ticker}"}, status_code=404)
+    try:
+        url = f"http://localhost:8000/fundamentals/{ticker}"
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            data = json.loads(resp.read())
+        return JSONResponse(_clean_nan(data))
+    except Exception as exc:
+        log.error("Fundamentals proxy error for %s: %s", ticker, exc)
+        return JSONResponse({"error": "Could not fetch fundamentals"}, status_code=502)
